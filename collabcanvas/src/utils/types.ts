@@ -41,12 +41,13 @@ export interface Shape {
 
 // Shape creation data (what we need to create a new shape)
 export interface ShapeCreateData {
+  id?: string; // Optional ID (will be generated if not provided)
   type: 'rectangle';
   x: number;
   y: number;
-  width: number;
-  height: number;
-  fill: string;
+  width?: number;
+  height?: number;
+  fill?: string;
   createdBy: string;
 }
 
@@ -101,11 +102,13 @@ export interface CanvasContextType {
   shapes: Shape[];
   selectedId: string | null;
   loading: boolean;
-  stageRef: React.RefObject<Konva.Stage> | null;
+  stageRef: React.RefObject<any> | null;
   addShape: (type: 'rectangle', position: { x: number; y: number }) => Promise<void>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;
   selectShape: (id: string | null) => void;
+  lockShape: (id: string) => Promise<void>;
+  unlockShape: (id: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -113,7 +116,6 @@ export interface CanvasContextType {
 // ============================================================================
 
 // Re-export Konva types that we'll use throughout the app
-export type { Stage, Layer } from 'konva/lib/Stage';
 export type { KonvaEventObject } from 'konva/lib/Node';
 
 // ============================================================================

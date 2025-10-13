@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getDatabase } from 'firebase/database';
 
 // Firebase configuration from environment variables
@@ -40,20 +40,16 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
 export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const rtdb = getDatabase(app);
 
-// Enable offline persistence for Firestore
-// This allows the app to work offline and sync when back online
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    // Multiple tabs open, persistence can only be enabled in one tab at a time
-    console.warn('Firestore persistence failed: Multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    // The current browser doesn't support persistence
-    console.warn('Firestore persistence not supported in this browser');
-  }
+// Initialize Firestore with persistent cache (new API)
+// This enables offline support with multi-tab synchronization
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
+
+export const rtdb = getDatabase(app);
 
 // Export the app instance (useful for Firebase Hosting deployment later)
 export default app;

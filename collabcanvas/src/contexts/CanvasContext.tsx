@@ -1,10 +1,9 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
-import { doc, collection } from 'firebase/firestore';
-import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
-import type { CanvasContextType, Shape, ShapeUpdateData } from '../utils/types';
+import { useCanvas } from '../hooks/useCanvas';
+import { lockShape as lockShapeService, unlockShape as unlockShapeService, getGlobalCanvasId } from '../services/canvas';
+import type { CanvasContextType, ShapeUpdateData } from '../utils/types';
 import type Konva from 'konva';
-import { DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, DEFAULT_SHAPE_FILL } from '../utils/constants';
 
 const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
 
@@ -16,74 +15,50 @@ const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
  */
 export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
-  const [shapes, setShapes] = useState<Shape[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
   const stageRef = useRef<Konva.Stage>(null);
+  
+  // Use the canvas hook for real-time synchronization
+  const {
+    shapes,
+    loading,
+    error,
+    addShape: addShapeHook,
+    updateShape: updateShapeHook,
+    deleteShape: deleteShapeHook,
+  } = useCanvas(currentUser?.uid || 'anonymous');
 
   /**
    * Add a new shape to the canvas
    * Currently supports only rectangles for MVP
-   * Uses Firebase doc().id for unique ID generation
+   * Syncs to Firestore in real-time
    * 
    * @param type - Shape type (currently only 'rectangle')
    * @param position - Position where the shape should be created
    */
   const addShape = async (type: 'rectangle', position: { x: number; y: number }): Promise<void> => {
-    // Generate unique ID using Firebase method
-    const shapeId = doc(collection(db, 'canvas')).id;
-    
-    const newShape: Shape = {
-      id: shapeId,
-      type,
-      x: position.x,
-      y: position.y,
-      width: DEFAULT_SHAPE_WIDTH,
-      height: DEFAULT_SHAPE_HEIGHT,
-      fill: DEFAULT_SHAPE_FILL,
-      createdBy: currentUser?.uid || 'anonymous',
-      createdAt: new Date() as any, // TODO: Use Timestamp in PR #5
-      lastModifiedBy: currentUser?.uid || 'anonymous',
-      lastModifiedAt: new Date() as any,
-      isLocked: false,
-      lockedBy: null,
-      lockedAt: null,
-    };
-    
-    setShapes((prev) => [...prev, newShape]);
+    await addShapeHook(type, position);
   };
 
   /**
    * Update an existing shape
+   * Syncs to Firestore in real-time
    * 
    * @param id - Shape ID to update
    * @param updates - Partial shape data to update
    */
   const updateShape = async (id: string, updates: ShapeUpdateData): Promise<void> => {
-    // TODO: This will be replaced with Firebase integration in PR #5
-    setShapes((prev) =>
-      prev.map((shape) =>
-        shape.id === id
-          ? {
-              ...shape,
-              ...updates,
-              lastModifiedBy: currentUser?.uid || 'anonymous',
-              lastModifiedAt: new Date() as any,
-            }
-          : shape
-      )
-    );
+    await updateShapeHook(id, updates);
   };
 
   /**
    * Delete a shape from the canvas
+   * Syncs to Firestore in real-time
    * 
    * @param id - Shape ID to delete
    */
   const deleteShape = async (id: string): Promise<void> => {
-    // TODO: This will be replaced with Firebase integration in PR #5
-    // Check if shape is locked by another user (will be relevant in PR #5)
-    setShapes((prev) => prev.filter((shape) => shape.id !== id));
+    await deleteShapeHook(id);
     
     // Clear selection if deleted shape was selected
     if (selectedId === id) {
@@ -100,6 +75,33 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSelectedId(id);
   };
 
+  /**
+   * Lock a shape for exclusive editing
+   * 
+   * @param id - Shape ID to lock
+   */
+  const lockShape = async (id: string): Promise<void> => {
+    if (!currentUser) return;
+    try {
+      await lockShapeService(getGlobalCanvasId(), id, currentUser.uid);
+    } catch (err) {
+      console.error('Error locking shape:', err);
+    }
+  };
+
+  /**
+   * Unlock a shape
+   * 
+   * @param id - Shape ID to unlock
+   */
+  const unlockShape = async (id: string): Promise<void> => {
+    try {
+      await unlockShapeService(getGlobalCanvasId(), id);
+    } catch (err) {
+      console.error('Error unlocking shape:', err);
+    }
+  };
+
   const value: CanvasContextType = {
     shapes,
     selectedId,
@@ -109,6 +111,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     updateShape,
     deleteShape,
     selectShape,
+    lockShape,
+    unlockShape,
   };
 
   return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;

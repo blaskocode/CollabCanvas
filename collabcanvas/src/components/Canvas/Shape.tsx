@@ -14,6 +14,7 @@ interface ShapeProps {
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
+  currentUserId: string | null;
   onSelect: () => void;
   onDragStart?: () => void;
   onDragEnd: (x: number, y: number) => void;
@@ -35,6 +36,7 @@ const Shape: React.FC<ShapeProps> = ({
   isSelected,
   isLocked,
   lockedBy,
+  currentUserId,
   onSelect,
   onDragStart,
   onDragEnd,
@@ -118,6 +120,9 @@ const Shape: React.FC<ShapeProps> = ({
     node.position({ x: constrainedX, y: constrainedY });
   };
 
+  // Check if shape is locked by another user
+  const isLockedByOtherUser = isLocked && lockedBy && lockedBy !== currentUserId;
+
   // Determine stroke color and style based on selection and lock state
   let stroke = 'transparent';
   let strokeWidth = 0;
@@ -127,9 +132,9 @@ const Shape: React.FC<ShapeProps> = ({
     strokeWidth = 2;
   }
 
-  if (isLocked && lockedBy) {
+  if (isLockedByOtherUser) {
     // TODO: In PR #6, we'll color-code based on the user who locked it
-    stroke = '#ef4444'; // Red for locked
+    stroke = '#ef4444'; // Red for locked by another user
     strokeWidth = 3;
   }
 
@@ -145,7 +150,7 @@ const Shape: React.FC<ShapeProps> = ({
         fill={fill}
         stroke={stroke}
         strokeWidth={strokeWidth}
-        draggable={!isLocked} // Only draggable if not locked by another user
+        draggable={!isLockedByOtherUser} // Only draggable if not locked by another user
         onClick={handleClick}
         onTap={handleTap}
         onDragStart={handleDragStart}

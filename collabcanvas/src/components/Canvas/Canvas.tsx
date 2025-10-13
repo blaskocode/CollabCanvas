@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Stage, Layer } from 'react-konva';
 import { useCanvasContext } from '../../contexts/CanvasContext';
+import { useAuth } from '../../hooks/useAuth';
+import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
 import Shape from './Shape';
+import Cursor from '../Collaboration/Cursor';
 import type { KonvaEventObject } from 'konva/lib/Node';
 
 /**
@@ -13,8 +16,16 @@ import type { KonvaEventObject } from 'konva/lib/Node';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, selectedId, stageRef, selectShape, addShape, updateShape, deleteShape } = useCanvasContext();
+  const { shapes, selectedId, loading, stageRef, selectShape, addShape, updateShape, deleteShape } = useCanvasContext();
+  const { currentUser } = useAuth();
   const toast = useToast();
+  
+  // Multiplayer cursors
+  const { cursors, updateCursor } = useCursors(
+    currentUser?.uid || null,
+    currentUser?.displayName || currentUser?.email || null,
+    !!currentUser
+  );
   
   // Viewport dimensions (dynamically calculated from window size)
   const [dimensions, setDimensions] = useState({
@@ -99,8 +110,12 @@ const Canvas: React.FC = () => {
           const selectedShape = shapes.find((shape) => shape.id === selectedId);
           
           if (selectedShape) {
-            // Check if shape is locked by another user
-            if (selectedShape.isLocked && selectedShape.lockedBy) {
+            // Check if shape is locked by another user (not current user)
+            const isLockedByOtherUser = selectedShape.isLocked && 
+                                        selectedShape.lockedBy && 
+                                        selectedShape.lockedBy !== currentUser?.uid;
+            
+            if (isLockedByOtherUser) {
               toast.error('Cannot delete: This shape is locked by another user');
               return;
             }
@@ -218,18 +233,47 @@ const Canvas: React.FC = () => {
 
   /**
    * Handle shape drag start - enables auto-pan
+   * Note: Shape locking will be fully implemented in PR#6 with presence system
    */
-  const handleShapeDragStart = useCallback(() => {
+  const handleShapeDragStart = useCallback((_shapeId: string) => {
     setIsDraggingShape(true);
+    // TODO PR#6: Implement proper locking with presence system
+    // lockShape(_shapeId);
   }, []);
 
   /**
-   * Handle shape drag end - disables auto-pan
+   * Handle shape drag end - disables auto-pan and updates position
+   * Note: Shape unlocking will be fully implemented in PR#6 with presence system
    */
-  const handleShapeDragEnd = useCallback((shapeId: string, x: number, y: number) => {
+  const handleShapeDragEnd = useCallback(async (shapeId: string, x: number, y: number) => {
     setIsDraggingShape(false);
-    updateShape(shapeId, { x, y });
+    
+    // Just update position (no locking yet - will be implemented in PR#6)
+    await updateShape(shapeId, { x, y });
+    
+    // TODO PR#6: Implement proper unlocking with presence system
+    // unlockShape(shapeId);
   }, [updateShape]);
+
+  /**
+   * Handle mouse move to update cursor position
+   * Converts screen coordinates to canvas coordinates accounting for pan/zoom
+   */
+  const handleMouseMove = useCallback((e: KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    // Convert screen coordinates to canvas coordinates
+    // Account for stage position (pan) and scale (zoom)
+    const canvasX = (pointerPos.x - stage.x()) / stage.scaleX();
+    const canvasY = (pointerPos.y - stage.y()) / stage.scaleY();
+
+    // Update cursor position in RTDB
+    updateCursor(canvasX, canvasY);
+  }, [updateCursor]);
 
   /**
    * Handle clicking on the stage background to deselect shapes
@@ -424,6 +468,18 @@ const Canvas: React.FC = () => {
     addShape('rectangle', { x: constrainedX, y: constrainedY });
   };
 
+  // Show loading state while shapes are being fetched
+  if (loading) {
+    return (
+      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-700 font-medium">Loading canvas...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-full bg-gray-100 overflow-hidden relative">
       <Stage
@@ -439,6 +495,7 @@ const Canvas: React.FC = () => {
         onTap={handleStageClick}
         onDragEnd={handleStageDragEnd}
         onWheel={handleWheel}
+        onMouseMove={handleMouseMove}
       >
         <Layer>
           {/* Background grid or color can be added here */}
@@ -455,13 +512,35 @@ const Canvas: React.FC = () => {
               isSelected={shape.id === selectedId}
               isLocked={shape.isLocked}
               lockedBy={shape.lockedBy}
+              currentUserId={currentUser?.uid || null}
               onSelect={() => selectShape(shape.id)}
-              onDragStart={handleShapeDragStart}
+              onDragStart={() => handleShapeDragStart(shape.id)}
               onDragEnd={(x, y) => handleShapeDragEnd(shape.id, x, y)}
             />
           ))}
         </Layer>
       </Stage>
+
+      {/* Other users' cursors */}
+      {Object.entries(cursors).map(([userId, cursor]) => {
+        // Don't show current user's cursor
+        if (userId === currentUser?.uid) return null;
+
+        // Convert canvas coordinates to screen coordinates
+        // Account for stage position (pan) and scale (zoom)
+        const screenX = cursor.cursorX * stageScale + stagePos.x;
+        const screenY = cursor.cursorY * stageScale + stagePos.y;
+
+        return (
+          <Cursor
+            key={userId}
+            x={screenX}
+            y={screenY}
+            color={cursor.cursorColor}
+            name={cursor.displayName}
+          />
+        );
+      })}
 
       {/* Canvas Controls */}
       <CanvasControls

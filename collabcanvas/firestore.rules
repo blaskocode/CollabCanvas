@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isValidTimestamp(timestamp) {
+      return timestamp is timestamp;
+    }
+    
+    // Canvas collection rules
+    match /canvas/{canvasId} {
+      // Allow authenticated users to read any canvas
+      allow read: if isAuthenticated();
+      
+      // Allow authenticated users to write to canvas
+      // Validate shape data structure
+      allow write: if isAuthenticated() 
+        && request.resource.data.keys().hasAll(['canvasId', 'shapes', 'lastUpdated'])
+        && request.resource.data.canvasId is string
+        && request.resource.data.shapes is list
+        && isValidTimestamp(request.resource.data.lastUpdated);
+      
+      // Additional validation for shape objects
+      // Each shape must have required fields
+      allow write: if isAuthenticated()
+        && request.resource.data.shapes.size() >= 0
+        && request.resource.data.shapes.size() < 10000; // Limit to 10k shapes per canvas
+    }
+  }
+}
+

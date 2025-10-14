@@ -22,7 +22,7 @@ export const useCursors = (userId: string | null, displayName: string | null, en
   const [cursors, setCursors] = useState<Record<string, CursorPosition>>({});
   const lastUpdateRef = useRef<number>(0);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userColorRef = useRef<string>('');
   
   const canvasId = getGlobalCanvasId();

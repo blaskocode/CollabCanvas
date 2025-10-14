@@ -99,6 +99,7 @@ export const useCanvas = (userId: string) => {
     } catch (err) {
       console.error('Error adding shape:', err);
       setError('Failed to add shape');
+      toast.error('Failed to create shape. Please try again.');
       throw err;
     }
   };
@@ -130,6 +131,7 @@ export const useCanvas = (userId: string) => {
     } catch (err) {
       console.error('Error updating shape:', err);
       setError('Failed to update shape');
+      toast.error('Failed to update shape. Changes will sync when connection is restored.');
       // Revert optimistic update on error - Firestore snapshot will restore correct state
       throw err;
     }
@@ -149,6 +151,7 @@ export const useCanvas = (userId: string) => {
     } catch (err) {
       console.error('Error deleting shape:', err);
       setError('Failed to delete shape');
+      toast.error('Failed to delete shape. Please try again.');
       // Revert optimistic update on error - Firestore snapshot will restore correct state
       throw err;
     }

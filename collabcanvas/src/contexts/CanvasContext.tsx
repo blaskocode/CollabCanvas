@@ -22,7 +22,6 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const {
     shapes,
     loading,
-    error,
     addShape: addShapeHook,
     updateShape: updateShapeHook,
     deleteShape: deleteShapeHook,

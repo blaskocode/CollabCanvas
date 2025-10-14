@@ -97,9 +97,17 @@ const Canvas: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Keyboard listener for delete functionality
+  // Keyboard listener for delete and escape functionality
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape key: deselect current selection
+      if (e.key === 'Escape') {
+        if (selectedId) {
+          selectShape(null);
+        }
+        return;
+      }
+
       // Check if Delete or Backspace key was pressed
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Prevent default browser behavior (e.g., going back in history)
@@ -129,7 +137,7 @@ const Canvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, shapes, deleteShape, toast]);
+  }, [selectedId, shapes, deleteShape, selectShape, toast, currentUser]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges

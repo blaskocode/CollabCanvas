@@ -125,7 +125,6 @@ export const updateLockedShapes = async (
   shapeIds: string[]
 ): Promise<void> => {
   try {
-    const userRef = ref(rtdb, `${SESSIONS_PATH}/${canvasId}/${userId}`);
     const lockedShapesRef = ref(rtdb, `${SESSIONS_PATH}/${canvasId}/${userId}/lockedShapes`);
     
     await set(lockedShapesRef, shapeIds);

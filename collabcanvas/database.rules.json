@@ -1,5 +1,13 @@
 {
   "rules": {
+    "cursors": {
+      "$canvasId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid == $userId"
+        }
+      }
+    },
     "sessions": {
       "$canvasId": {
         ".read": "auth != null",
@@ -7,7 +15,14 @@
           ".write": "auth != null && auth.uid == $userId"
         }
       }
+    },
+    "presence": {
+      "$canvasId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid == $userId"
+        }
+      }
     }
   }
 }
-

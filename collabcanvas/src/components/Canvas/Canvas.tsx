@@ -591,23 +591,12 @@ const Canvas: React.FC = () => {
     }
   };
 
-  // Show loading state while shapes are being fetched
-  if (loading) {
-    return (
-      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-700 font-medium">Loading canvas...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Get selected shape for property panel
+  // Get selected shape for property panel (must be before early return)
   const selectedShape = shapes.find((shape) => shape.id === selectedId) || null;
 
   /**
    * Handle property updates from PropertyPanel
+   * IMPORTANT: Must be declared before any early returns to follow Rules of Hooks
    */
   const handlePropertyUpdate = useCallback(async (updates: Partial<ShapeType>) => {
     if (!selectedId) return;
@@ -619,6 +608,18 @@ const Canvas: React.FC = () => {
       toast.error('Failed to update shape properties');
     }
   }, [selectedId, updateShape, toast]);
+
+  // Show loading state while shapes are being fetched
+  if (loading) {
+    return (
+      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-700 font-medium">Loading canvas...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full bg-gray-100 overflow-hidden relative">

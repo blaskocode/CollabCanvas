@@ -17,7 +17,6 @@ import { DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, DEFAULT_SHAPE_FILL } from '.
  */
 
 const CANVAS_COLLECTION = 'canvas';
-const GLOBAL_CANVAS_ID = 'global-canvas-v1';
 
 /**
  * Subscribe to real-time shape updates from Firestore
@@ -269,8 +268,4 @@ export const checkAndReleaseStaleLocks = async (
   return released;
 };
 
-/**
- * Get the global canvas ID (used throughout the app)
- */
-export const getGlobalCanvasId = (): string => GLOBAL_CANVAS_ID;
 

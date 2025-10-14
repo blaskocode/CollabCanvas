@@ -2,6 +2,12 @@
  * Canvas Configuration Constants
  */
 
+// Canvas ID
+export const GLOBAL_CANVAS_ID = 'global-canvas-v1';
+
+// Realtime Database paths
+export const SESSIONS_PATH = 'sessions';
+
 // Canvas dimensions
 export const CANVAS_WIDTH = 5000;
 export const CANVAS_HEIGHT = 5000;

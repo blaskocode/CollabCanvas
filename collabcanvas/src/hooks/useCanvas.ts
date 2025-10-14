@@ -7,10 +7,9 @@ import {
   updateShape as updateShapeService,
   deleteShape as deleteShapeService,
   checkAndReleaseStaleLocks,
-  getGlobalCanvasId,
 } from '../services/canvas';
 import type { Shape, ShapeCreateData, ShapeUpdateData } from '../utils/types';
-import { LOCK_CHECK_INTERVAL_MS } from '../utils/constants';
+import { LOCK_CHECK_INTERVAL_MS, GLOBAL_CANVAS_ID } from '../utils/constants';
 import toast from 'react-hot-toast';
 
 /**
@@ -26,7 +25,7 @@ export const useCanvas = (userId: string) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const canvasId = getGlobalCanvasId();
+  const canvasId = GLOBAL_CANVAS_ID;
 
   // Subscribe to real-time shape updates
   useEffect(() => {

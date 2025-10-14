@@ -6,7 +6,10 @@ A real-time collaborative design tool built with React, Firebase, and Konva.js. 
 
 **[Try CollabCanvas Live →](https://collabcanvas-mvp.web.app)**
 
+**✅ PUBLICLY ACCESSIBLE** - Share this URL with anyone to collaborate in real-time!  
 Open in 2-3 browser windows to see real-time collaboration in action!
+
+**Alternative Hosting:** Want to deploy on Vercel? See [`VERCEL_DEPLOYMENT.md`](./VERCEL_DEPLOYMENT.md)
 
 ## 🚀 Features
 

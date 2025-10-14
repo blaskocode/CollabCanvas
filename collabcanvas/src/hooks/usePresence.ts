@@ -3,10 +3,10 @@ import {
   setUserOnline,
   setUserOffline,
   subscribeToPresence,
-  getGlobalCanvasId,
 } from '../services/presence';
 import { generateUserColor } from '../utils/helpers';
 import type { PresenceUser } from '../utils/types';
+import { GLOBAL_CANVAS_ID } from '../utils/constants';
 
 /**
  * Hook for managing user presence (online/offline status)
@@ -23,7 +23,7 @@ export const usePresence = (
 ) => {
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
   const userColorRef = useRef<string>('');
-  const canvasId = getGlobalCanvasId();
+  const canvasId = GLOBAL_CANVAS_ID;
 
   // Generate user color once
   useEffect(() => {

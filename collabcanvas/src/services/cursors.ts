@@ -1,14 +1,12 @@
 import { ref, set, onValue, onDisconnect, remove, serverTimestamp } from 'firebase/database';
 import { rtdb } from './firebase';
 import type { CursorPosition } from '../utils/types';
+import { SESSIONS_PATH } from '../utils/constants';
 
 /**
  * Cursor Service
  * Handles real-time cursor position updates using Firebase Realtime Database
  */
-
-const SESSIONS_PATH = 'sessions';
-const GLOBAL_CANVAS_ID = 'global-canvas-v1';
 
 /**
  * Update cursor position in Realtime Database
@@ -121,8 +119,4 @@ export const setupCursorCleanup = (
   onDisconnect(cursorRef).remove();
 };
 
-/**
- * Get the global canvas ID
- */
-export const getGlobalCanvasId = (): string => GLOBAL_CANVAS_ID;
 

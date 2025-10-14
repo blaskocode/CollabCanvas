@@ -133,7 +133,6 @@ const Shape: React.FC<ShapeProps> = ({
   }
 
   if (isLockedByOtherUser) {
-    // TODO: In PR #6, we'll color-code based on the user who locked it
     stroke = '#ef4444'; // Red for locked by another user
     strokeWidth = 3;
   }

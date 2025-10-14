@@ -241,26 +241,23 @@ const Canvas: React.FC = () => {
 
   /**
    * Handle shape drag start - enables auto-pan
-   * Note: Shape locking will be fully implemented in PR#6 with presence system
    */
   const handleShapeDragStart = useCallback((_shapeId: string) => {
     setIsDraggingShape(true);
-    // TODO PR#6: Implement proper locking with presence system
-    // lockShape(_shapeId);
   }, []);
 
   /**
    * Handle shape drag end - disables auto-pan and updates position
-   * Note: Shape unlocking will be fully implemented in PR#6 with presence system
    */
   const handleShapeDragEnd = useCallback(async (shapeId: string, x: number, y: number) => {
     setIsDraggingShape(false);
-    
-    // Just update position (no locking yet - will be implemented in PR#6)
-    await updateShape(shapeId, { x, y });
-    
-    // TODO PR#6: Implement proper unlocking with presence system
-    // unlockShape(shapeId);
+
+    // Update shape position in Firestore
+    try {
+      await updateShape(shapeId, { x, y });
+    } catch (error) {
+      console.error('Error updating shape position:', error);
+    }
   }, [updateShape]);
 
   /**

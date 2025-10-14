@@ -1,15 +1,13 @@
 import { ref, set, remove, onValue, onDisconnect, serverTimestamp } from 'firebase/database';
 import { rtdb } from './firebase';
 import type { PresenceUser } from '../utils/types';
+import { SESSIONS_PATH } from '../utils/constants';
 
 /**
  * Presence Service
  * Handles user online/offline status using Firebase Realtime Database
  * Shares the same path as cursor data: /sessions/{canvasId}/{userId}
  */
-
-const SESSIONS_PATH = 'sessions';
-const GLOBAL_CANVAS_ID = 'global-canvas-v1';
 
 /**
  * Set user as online in the presence system
@@ -133,8 +131,4 @@ export const updateLockedShapes = async (
   }
 };
 
-/**
- * Get the global canvas ID
- */
-export const getGlobalCanvasId = (): string => GLOBAL_CANVAS_ID;
 

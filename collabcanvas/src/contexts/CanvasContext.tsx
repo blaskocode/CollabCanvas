@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
-import { lockShape as lockShapeService, unlockShape as unlockShapeService, getGlobalCanvasId } from '../services/canvas';
+import { lockShape as lockShapeService, unlockShape as unlockShapeService } from '../services/canvas';
 import type { CanvasContextType, ShapeUpdateData } from '../utils/types';
 import type Konva from 'konva';
+import { GLOBAL_CANVAS_ID } from '../utils/constants';
 
 const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
 
@@ -82,7 +83,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const lockShape = async (id: string): Promise<void> => {
     if (!currentUser) return;
     try {
-      await lockShapeService(getGlobalCanvasId(), id, currentUser.uid);
+      await lockShapeService(GLOBAL_CANVAS_ID, id, currentUser.uid);
     } catch (err) {
       console.error('Error locking shape:', err);
     }
@@ -95,7 +96,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    */
   const unlockShape = async (id: string): Promise<void> => {
     try {
-      await unlockShapeService(getGlobalCanvasId(), id);
+      await unlockShapeService(GLOBAL_CANVAS_ID, id);
     } catch (err) {
       console.error('Error unlocking shape:', err);
     }

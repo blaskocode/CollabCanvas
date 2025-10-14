@@ -4,11 +4,10 @@ import {
   updateCursorPosition,
   removeCursor,
   setupCursorCleanup,
-  getGlobalCanvasId,
 } from '../services/cursors';
 import { generateUserColor } from '../utils/helpers';
 import type { CursorPosition } from '../utils/types';
-import { CURSOR_UPDATE_THROTTLE_MS, CURSOR_POSITION_THRESHOLD_PX } from '../utils/constants';
+import { CURSOR_UPDATE_THROTTLE_MS, CURSOR_POSITION_THRESHOLD_PX, GLOBAL_CANVAS_ID } from '../utils/constants';
 
 /**
  * Hook for managing real-time cursor positions
@@ -25,7 +24,7 @@ export const useCursors = (userId: string | null, displayName: string | null, en
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userColorRef = useRef<string>('');
   
-  const canvasId = getGlobalCanvasId();
+  const canvasId = GLOBAL_CANVAS_ID;
 
   // Generate user color once
   useEffect(() => {

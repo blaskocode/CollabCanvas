@@ -599,10 +599,12 @@ const Canvas: React.FC = () => {
    * IMPORTANT: Must be declared before any early returns to follow Rules of Hooks
    */
   const handlePropertyUpdate = useCallback(async (updates: Partial<ShapeType>) => {
+    console.log('[Canvas] handlePropertyUpdate called:', { selectedId, updates });
     if (!selectedId) return;
     
     try {
       await updateShape(selectedId, updates);
+      console.log('[Canvas] Shape updated successfully');
     } catch (error) {
       console.error('Error updating shape properties:', error);
       toast.error('Failed to update shape properties');

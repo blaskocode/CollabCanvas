@@ -28,6 +28,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
 
   // Update local state when shape changes
   useEffect(() => {
+    console.log('[PropertyPanel] Shape changed:', shape?.id, shape);
     if (shape) {
       setFillColor(shape.fill);
       setStrokeColor(shape.stroke || '#000000');
@@ -64,6 +65,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
 
   // Handle fill color change with immediate preview
   const handleFillChange = (color: string) => {
+    console.log('[PropertyPanel] Fill color changed:', color);
     setFillColor(color);
     onUpdate({ fill: color });
   };
@@ -110,6 +112,14 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
       className="fixed top-20 left-4 glass-strong rounded-2xl shadow-2xl p-5 space-y-4 z-10 w-64 transform hover:scale-105 transition-all duration-300"
       role="region"
       aria-label="Shape properties"
+      onClick={(e) => {
+        console.log('[PropertyPanel] Panel clicked, stopping propagation');
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        console.log('[PropertyPanel] Panel mousedown, stopping propagation');
+        e.stopPropagation();
+      }}
     >
       {/* Header */}
       <div className="text-center bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl py-3 px-4 shadow-md">

@@ -103,6 +103,7 @@ export const useCanvas = (userId: string) => {
    * Update an existing shape
    */
   const updateShape = async (id: string, updates: ShapeUpdateData): Promise<void> => {
+    console.log('[useCanvas] updateShape called:', { id, updates });
     try {
       // Optimistic update
       setShapes((prevShapes) =>
@@ -122,6 +123,7 @@ export const useCanvas = (userId: string) => {
         ...updates,
         lastModifiedBy: userId,
       });
+      console.log('[useCanvas] Shape updated in Firestore successfully');
       // Firestore will sync back via onSnapshot
     } catch (err) {
       console.error('Error updating shape:', err);

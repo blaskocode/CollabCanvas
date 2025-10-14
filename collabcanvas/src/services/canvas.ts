@@ -244,6 +244,8 @@ export const updateShape = async (
       return acc;
     }, {} as Record<string, any>);
 
+    console.log('[canvas.ts] updateShape:', { canvasId, shapeId, filteredUpdates });
+
     const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
     const canvasSnap = await getDoc(canvasRef);
 
@@ -252,6 +254,9 @@ export const updateShape = async (
     }
 
     const currentData = canvasSnap.data() as CanvasDocument;
+    const shapeToUpdate = currentData.shapes.find(s => s.id === shapeId);
+    console.log('[canvas.ts] Current shape:', shapeToUpdate);
+    
     const updatedShapes = currentData.shapes.map((shape) =>
       shape.id === shapeId
         ? {
@@ -262,10 +267,14 @@ export const updateShape = async (
         : shape
     );
 
+    console.log('[canvas.ts] Updated shape:', updatedShapes.find(s => s.id === shapeId));
+
     await updateDoc(canvasRef, {
       shapes: updatedShapes,
       lastUpdated: serverTimestamp(),
     });
+    
+    console.log('[canvas.ts] Firestore update successful');
   } catch (error) {
     console.error('Error updating shape:', error);
     throw error;

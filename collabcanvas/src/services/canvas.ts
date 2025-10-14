@@ -8,7 +8,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Shape, ShapeCreateData, ShapeUpdateData, CanvasDocument } from '../utils/types';
+import type { Shape, ShapeCreateData, ShapeUpdateData, CanvasDocument, ShapeType } from '../utils/types';
 import { DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, DEFAULT_SHAPE_FILL } from '../utils/constants';
 
 /**
@@ -66,6 +66,75 @@ const initializeCanvas = async (canvasId: string): Promise<void> => {
 };
 
 /**
+ * Create shape by type with type-specific defaults
+ * 
+ * @param type - The shape type
+ * @param position - The position {x, y}
+ * @param userId - The user ID creating the shape
+ * @returns Shape creation data with type-specific properties
+ */
+export const createShapeByType = (
+  type: ShapeType,
+  position: { x: number; y: number },
+  userId: string
+): ShapeCreateData => {
+  const baseShape = {
+    type,
+    x: position.x,
+    y: position.y,
+    createdBy: userId,
+  };
+
+  switch (type) {
+    case 'rectangle':
+      return {
+        ...baseShape,
+        width: DEFAULT_SHAPE_WIDTH,
+        height: DEFAULT_SHAPE_HEIGHT,
+        fill: DEFAULT_SHAPE_FILL,
+      };
+    
+    case 'circle':
+      return {
+        ...baseShape,
+        width: 100, // Bounding box width
+        height: 100, // Bounding box height
+        fill: DEFAULT_SHAPE_FILL,
+        radius: 50,
+      };
+    
+    case 'text':
+      return {
+        ...baseShape,
+        width: 200,
+        height: 50,
+        fill: '#000000',
+        text: 'Click to edit',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        textAlign: 'left',
+      };
+    
+    case 'line':
+      return {
+        ...baseShape,
+        width: 100,
+        height: 100,
+        fill: '#000000',
+        points: [0, 0, 100, 100], // Default diagonal line
+      };
+    
+    default:
+      return {
+        ...baseShape,
+        width: DEFAULT_SHAPE_WIDTH,
+        height: DEFAULT_SHAPE_HEIGHT,
+        fill: DEFAULT_SHAPE_FILL,
+      };
+  }
+};
+
+/**
  * Create a new shape in Firestore
  * 
  * @param canvasId - The canvas document ID
@@ -85,6 +154,8 @@ export const createShape = async (
     }
 
     const now = Timestamp.now();
+    
+    // Base shape with required fields
     const newShape: Shape = {
       id: shapeData.id || doc(db, 'temp').id,
       type: shapeData.type,
@@ -101,6 +172,40 @@ export const createShape = async (
       lockedBy: null,
       lockedAt: null,
     };
+
+    // Add styling properties only if they are defined
+    if (shapeData.stroke !== undefined) {
+      newShape.stroke = shapeData.stroke;
+    }
+    if (shapeData.strokeWidth !== undefined) {
+      newShape.strokeWidth = shapeData.strokeWidth;
+    }
+    if (shapeData.opacity !== undefined) {
+      newShape.opacity = shapeData.opacity;
+    }
+    if (shapeData.cornerRadius !== undefined) {
+      newShape.cornerRadius = shapeData.cornerRadius;
+    }
+    
+    // Add shape-specific properties only if they are defined (Firestore doesn't accept undefined)
+    if (shapeData.radius !== undefined) {
+      newShape.radius = shapeData.radius;
+    }
+    if (shapeData.text !== undefined) {
+      newShape.text = shapeData.text;
+    }
+    if (shapeData.fontSize !== undefined) {
+      newShape.fontSize = shapeData.fontSize;
+    }
+    if (shapeData.fontFamily !== undefined) {
+      newShape.fontFamily = shapeData.fontFamily;
+    }
+    if (shapeData.textAlign !== undefined) {
+      newShape.textAlign = shapeData.textAlign;
+    }
+    if (shapeData.points !== undefined) {
+      newShape.points = shapeData.points;
+    }
 
     // Get current shapes and add the new one
     const currentData = canvasSnap.data() as CanvasDocument;

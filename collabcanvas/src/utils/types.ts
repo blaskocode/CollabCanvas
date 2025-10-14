@@ -22,9 +22,11 @@ export const toUser = (firebaseUser: FirebaseUser): User => ({
 // Shape Types
 // ============================================================================
 
+export type ShapeType = 'rectangle' | 'circle' | 'text' | 'line';
+
 export interface Shape {
   id: string;
-  type: 'rectangle';
+  type: ShapeType;
   x: number;
   y: number;
   width: number;
@@ -37,18 +39,50 @@ export interface Shape {
   isLocked: boolean;
   lockedBy: string | null;
   lockedAt: Timestamp | null;
+  
+  // Styling properties
+  stroke?: string; // Border color (hex)
+  strokeWidth?: number; // Border width (1-10px)
+  opacity?: number; // Opacity (0-100)
+  cornerRadius?: number; // Corner radius for rectangles (0-50px)
+  
+  // Circle-specific properties
+  radius?: number;
+  
+  // Text-specific properties
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  
+  // Line-specific properties
+  points?: [number, number, number, number]; // [x1, y1, x2, y2]
 }
 
 // Shape creation data (what we need to create a new shape)
 export interface ShapeCreateData {
   id?: string; // Optional ID (will be generated if not provided)
-  type: 'rectangle';
+  type: ShapeType;
   x: number;
   y: number;
   width?: number;
   height?: number;
   fill?: string;
   createdBy: string;
+  
+  // Styling properties
+  stroke?: string;
+  strokeWidth?: number;
+  opacity?: number;
+  cornerRadius?: number;
+  
+  // Shape-specific properties
+  radius?: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  points?: [number, number, number, number];
 }
 
 // Shape update data (partial updates)
@@ -103,7 +137,7 @@ export interface CanvasContextType {
   selectedId: string | null;
   loading: boolean;
   stageRef: React.RefObject<any> | null;
-  addShape: (type: 'rectangle', position: { x: number; y: number }) => Promise<void>;
+  addShape: (type: ShapeType, position: { x: number; y: number }) => Promise<void>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;
   selectShape: (id: string | null) => void;

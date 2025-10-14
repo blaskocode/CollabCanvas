@@ -4,11 +4,12 @@ import { db } from '../services/firebase';
 import {
   subscribeToShapes,
   createShape as createShapeService,
+  createShapeByType,
   updateShape as updateShapeService,
   deleteShape as deleteShapeService,
   checkAndReleaseStaleLocks,
 } from '../services/canvas';
-import type { Shape, ShapeCreateData, ShapeUpdateData } from '../utils/types';
+import type { Shape, ShapeCreateData, ShapeUpdateData, ShapeType } from '../utils/types';
 import { LOCK_CHECK_INTERVAL_MS, GLOBAL_CANVAS_ID } from '../utils/constants';
 import toast from 'react-hot-toast';
 
@@ -77,20 +78,15 @@ export const useCanvas = (userId: string) => {
   /**
    * Add a new shape to the canvas
    */
-  const addShape = async (type: 'rectangle', position: { x: number; y: number }): Promise<void> => {
+  const addShape = async (type: ShapeType, position: { x: number; y: number }): Promise<void> => {
     try {
       // Generate unique ID using Firebase
       const shapeId = doc(collection(db, 'canvas')).id;
 
+      // Use the shape factory to create shape with type-specific defaults
       const shapeData: ShapeCreateData = {
+        ...createShapeByType(type, position, userId),
         id: shapeId,
-        type,
-        x: position.x,
-        y: position.y,
-        width: 100,
-        height: 100,
-        fill: '#cccccc',
-        createdBy: userId,
       };
 
       await createShapeService(canvasId, shapeData);

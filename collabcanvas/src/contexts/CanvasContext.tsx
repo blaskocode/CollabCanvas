@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { lockShape as lockShapeService, unlockShape as unlockShapeService } from '../services/canvas';
-import type { CanvasContextType, ShapeUpdateData } from '../utils/types';
+import type { CanvasContextType, ShapeUpdateData, ShapeType } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
 
@@ -30,13 +30,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   /**
    * Add a new shape to the canvas
-   * Currently supports only rectangles for MVP
+   * Supports multiple shape types: rectangle, circle, text, line
    * Syncs to Firestore in real-time
    * 
-   * @param type - Shape type (currently only 'rectangle')
+   * @param type - Shape type
    * @param position - Position where the shape should be created
    */
-  const addShape = async (type: 'rectangle', position: { x: number; y: number }): Promise<void> => {
+  const addShape = async (type: ShapeType, position: { x: number; y: number }): Promise<void> => {
     await addShapeHook(type, position);
   };
 

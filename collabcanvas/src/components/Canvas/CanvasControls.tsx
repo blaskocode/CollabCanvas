@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MAX_ZOOM } from '../../utils/constants';
+import type { ShapeType } from '../../utils/types';
 
 interface CanvasControlsProps {
   zoom: number;
@@ -7,7 +8,7 @@ interface CanvasControlsProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetView: () => void;
-  onAddShape: () => void;
+  onAddShape: (type: ShapeType) => void;
 }
 
 /**
@@ -25,6 +26,7 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
 }) => {
   const canZoomIn = zoom < MAX_ZOOM;
   const canZoomOut = zoom > minZoom;
+  const [selectedShapeType, setSelectedShapeType] = useState<ShapeType>('rectangle');
 
   return (
     <div 
@@ -86,18 +88,88 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
       {/* Divider */}
       <div className="border-t border-gradient-to-r from-transparent via-gray-300 to-transparent" role="separator"></div>
 
-      {/* Shape Controls */}
+      {/* Shape Type Selector */}
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-gray-600 text-center">Shape Type</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setSelectedShapeType('rectangle')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              selectedShapeType === 'rectangle'
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-300 hover:border-green-400'
+            }`}
+            title="Rectangle"
+            aria-label="Select rectangle shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="4" y="6" width="16" height="12" strokeWidth={2} rx="2" />
+            </svg>
+            <span className="text-xs">Rectangle</span>
+          </button>
+          
+          <button
+            onClick={() => setSelectedShapeType('circle')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              selectedShapeType === 'circle'
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-300 hover:border-green-400'
+            }`}
+            title="Circle"
+            aria-label="Select circle shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="8" strokeWidth={2} />
+            </svg>
+            <span className="text-xs">Circle</span>
+          </button>
+          
+          <button
+            onClick={() => setSelectedShapeType('text')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              selectedShapeType === 'text'
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-300 hover:border-green-400'
+            }`}
+            title="Text"
+            aria-label="Select text shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+            </svg>
+            <span className="text-xs">Text</span>
+          </button>
+          
+          <button
+            onClick={() => setSelectedShapeType('line')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              selectedShapeType === 'line'
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-300 hover:border-green-400'
+            }`}
+            title="Line"
+            aria-label="Select line shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <line x1="4" y1="18" x2="20" y2="6" strokeWidth={2} strokeLinecap="round" />
+            </svg>
+            <span className="text-xs">Line</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Add Shape Button */}
       <div>
         <button
-          onClick={onAddShape}
-          className="w-full px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-2 animate-pulse-glow"
-          title="Add Rectangle"
-          aria-label="Add new rectangle shape"
+          onClick={() => onAddShape(selectedShapeType)}
+          className="w-full px-4 py-3 text-sm font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-2"
+          title={`Add ${selectedShapeType}`}
+          aria-label={`Add new ${selectedShapeType} shape`}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          <span>Add Shape</span>
+          <span>Add {selectedShapeType.charAt(0).toUpperCase() + selectedShapeType.slice(1)}</span>
         </button>
       </div>
 

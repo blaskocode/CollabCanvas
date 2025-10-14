@@ -6,9 +6,15 @@ import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
+import PropertyPanel from './PropertyPanel';
 import Shape from './Shape';
+import Rectangle from './shapes/Rectangle';
+import Circle from './shapes/Circle';
+import Text from './shapes/Text';
+import Line from './shapes/Line';
 import Cursor from '../Collaboration/Cursor';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import type { Shape as ShapeType } from '../../utils/types';
 
 /**
  * Canvas Component
@@ -449,7 +455,7 @@ const Canvas: React.FC = () => {
    * Creates a shape at the center of the current viewport
    * Ensures shape is created wholly within canvas boundaries
    */
-  const handleAddShape = () => {
+  const handleAddShape = (type: ShapeType['type']) => {
     // Calculate center of current viewport in canvas coordinates
     const center = {
       x: dimensions.width / 2,
@@ -470,7 +476,119 @@ const Canvas: React.FC = () => {
     const constrainedX = Math.max(0, Math.min(canvasX, CANVAS_WIDTH - DEFAULT_SHAPE_WIDTH));
     const constrainedY = Math.max(0, Math.min(canvasY, CANVAS_HEIGHT - DEFAULT_SHAPE_HEIGHT));
 
-    addShape('rectangle', { x: constrainedX, y: constrainedY });
+    addShape(type, { x: constrainedX, y: constrainedY });
+  };
+
+  /**
+   * Render shape based on type
+   */
+  const renderShapeByType = (shape: ShapeType, isSelected: boolean) => {
+    const commonProps = {
+      id: shape.id,
+      isSelected,
+      isLocked: shape.isLocked,
+      lockedBy: shape.lockedBy,
+      currentUserId: currentUser?.uid || null,
+      onSelect: () => selectShape(shape.id),
+      onDragStart: () => handleShapeDragStart(shape.id),
+      onDragEnd: (x: number, y: number) => handleShapeDragEnd(shape.id, x, y),
+    };
+
+    switch (shape.type) {
+      case 'rectangle':
+        return (
+          <Rectangle
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            cornerRadius={shape.cornerRadius}
+          />
+        );
+      
+      case 'circle':
+        return (
+          <Circle
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            radius={shape.radius || 50}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+          />
+        );
+      
+      case 'text':
+        return (
+          <Text
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            text={shape.text || 'Click to edit'}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            onTextChange={async (newText) => {
+              try {
+                await updateShape(shape.id, { text: newText });
+              } catch (error) {
+                console.error('Error updating text:', error);
+              }
+            }}
+          />
+        );
+      
+      case 'line':
+        return (
+          <Line
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            points={shape.points || [0, 0, 100, 100]}
+            stroke={shape.fill}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            onPointsChange={async (newPoints) => {
+              try {
+                await updateShape(shape.id, { points: newPoints });
+              } catch (error) {
+                console.error('Error updating line points:', error);
+              }
+            }}
+          />
+        );
+      
+      default:
+        // Fallback to old Shape component for backward compatibility
+        return (
+          <Shape
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+          />
+        );
+    }
   };
 
   // Show loading state while shapes are being fetched
@@ -484,6 +602,23 @@ const Canvas: React.FC = () => {
       </div>
     );
   }
+
+  // Get selected shape for property panel
+  const selectedShape = shapes.find((shape) => shape.id === selectedId) || null;
+
+  /**
+   * Handle property updates from PropertyPanel
+   */
+  const handlePropertyUpdate = useCallback(async (updates: Partial<ShapeType>) => {
+    if (!selectedId) return;
+    
+    try {
+      await updateShape(selectedId, updates);
+    } catch (error) {
+      console.error('Error updating shape properties:', error);
+      toast.error('Failed to update shape properties');
+    }
+  }, [selectedId, updateShape, toast]);
 
   return (
     <div className="w-full h-full bg-gray-100 overflow-hidden relative">
@@ -505,24 +640,7 @@ const Canvas: React.FC = () => {
         <Layer>
           {/* Background grid or color can be added here */}
           {/* Render all shapes */}
-          {shapes.map((shape) => (
-            <Shape
-              key={shape.id}
-              id={shape.id}
-              x={shape.x}
-              y={shape.y}
-              width={shape.width}
-              height={shape.height}
-              fill={shape.fill}
-              isSelected={shape.id === selectedId}
-              isLocked={shape.isLocked}
-              lockedBy={shape.lockedBy}
-              currentUserId={currentUser?.uid || null}
-              onSelect={() => selectShape(shape.id)}
-              onDragStart={() => handleShapeDragStart(shape.id)}
-              onDragEnd={(x, y) => handleShapeDragEnd(shape.id, x, y)}
-            />
-          ))}
+          {shapes.map((shape) => renderShapeByType(shape, shape.id === selectedId))}
         </Layer>
       </Stage>
 
@@ -546,6 +664,12 @@ const Canvas: React.FC = () => {
           />
         );
       })}
+
+      {/* Property Panel (shows when shape selected) */}
+      <PropertyPanel
+        shape={selectedShape}
+        onUpdate={handlePropertyUpdate}
+      />
 
       {/* Canvas Controls */}
       <CanvasControls

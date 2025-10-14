@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { hexToHsv, hsvToHex, hsvToRgb, rgbToHex, hexToRgb, getHueColor, type HSV, type RGB } from '../../utils/colorUtils';
+import { hexToHsv, hsvToRgb, rgbToHex, hexToRgb, getHueColor, type HSV, type RGB } from '../../utils/colorUtils';
 
 interface ColorPickerProps {
   label: string;

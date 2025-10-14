@@ -43,9 +43,6 @@ const Canvas: React.FC = () => {
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
 
-  // Dynamic minimum zoom - calculated to fit entire canvas in viewport
-  const [minZoom, setMinZoom] = useState(MIN_ZOOM);
-
   // Auto-pan state for shape dragging near viewport edges
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const autoPanFrameId = useRef<number | null>(null);
@@ -65,7 +62,7 @@ const Canvas: React.FC = () => {
     setStagePos({ x: xOffset, y: yOffset });
   };
 
-  // Update dimensions and calculate minimum zoom on window resize
+  // Update dimensions on window resize
   useEffect(() => {
     const handleResize = () => {
       const newDimensions = {
@@ -74,29 +71,11 @@ const Canvas: React.FC = () => {
       };
       setDimensions(newDimensions);
 
-      // Calculate minimum zoom to fit entire canvas in viewport
-      // Take the smaller of the two ratios to ensure entire canvas is visible
-      // This allows seeing the full larger dimension, with empty space on the smaller dimension
-      const calculatedMinZoom = Math.min(
-        newDimensions.width / CANVAS_WIDTH,
-        newDimensions.height / CANVAS_HEIGHT
-      );
-      setMinZoom(calculatedMinZoom);
-
-      // If current zoom is below new minimum, adjust it and center the canvas
-      setStageScale(prevScale => {
-        const newScale = Math.max(prevScale, calculatedMinZoom);
-        
-        // If we're at minimum zoom, center the canvas
-        if (newScale === calculatedMinZoom) {
-          centerCanvasAtMinZoom(newDimensions, calculatedMinZoom);
-        }
-        
-        return newScale;
-      });
+      // If current zoom is below minimum, adjust it
+      setStageScale(prevScale => Math.max(prevScale, MIN_ZOOM));
     };
 
-    // Calculate initial minimum zoom
+    // Set initial dimensions
     handleResize();
 
     window.addEventListener('resize', handleResize);
@@ -211,20 +190,42 @@ const Canvas: React.FC = () => {
           y: stagePos.y + panY,
         };
 
-        // Constrain position to keep canvas visible
-        const padding = 100;
+        // Constrain position to keep canvas visible with context-aware logic
         const scale = stageScale;
-        
-        const maxX = padding;
-        const maxY = padding;
-        const minX = -(CANVAS_WIDTH * scale - dimensions.width + padding);
-        const minY = -(CANVAS_HEIGHT * scale - dimensions.height + padding);
+        const scaledCanvasWidth = CANVAS_WIDTH * scale;
+        const scaledCanvasHeight = CANVAS_HEIGHT * scale;
 
-        // Apply constraints
-        if (newPos.x > maxX) newPos.x = maxX;
-        if (newPos.x < minX) newPos.x = minX;
-        if (newPos.y > maxY) newPos.y = maxY;
-        if (newPos.y < minY) newPos.y = minY;
+        // Horizontal constraints
+        if (scaledCanvasWidth > dimensions.width) {
+          const padding = 100;
+          const maxX = padding;
+          const minX = -(scaledCanvasWidth - dimensions.width + padding);
+          
+          if (newPos.x > maxX) newPos.x = maxX;
+          if (newPos.x < minX) newPos.x = minX;
+        } else {
+          const maxX = dimensions.width - scaledCanvasWidth + 100;
+          const minX = -100;
+          
+          if (newPos.x > maxX) newPos.x = maxX;
+          if (newPos.x < minX) newPos.x = minX;
+        }
+
+        // Vertical constraints
+        if (scaledCanvasHeight > dimensions.height) {
+          const padding = 100;
+          const maxY = padding;
+          const minY = -(scaledCanvasHeight - dimensions.height + padding);
+          
+          if (newPos.y > maxY) newPos.y = maxY;
+          if (newPos.y < minY) newPos.y = minY;
+        } else {
+          const maxY = dimensions.height - scaledCanvasHeight + 100;
+          const minY = -100;
+          
+          if (newPos.y > maxY) newPos.y = maxY;
+          if (newPos.y < minY) newPos.y = minY;
+        }
 
         setStagePos(newPos);
       }
@@ -299,7 +300,7 @@ const Canvas: React.FC = () => {
 
   /**
    * Handle stage drag (pan functionality)
-   * Constrains panning to canvas bounds
+   * Constrains panning to canvas bounds with context-aware logic
    */
   const handleStageDragEnd = (e: KonvaEventObject<DragEvent>) => {
     const stage = e.target;
@@ -308,21 +309,48 @@ const Canvas: React.FC = () => {
       y: stage.y(),
     };
 
-    // Constrain position to keep canvas visible
-    // Allow some padding so user can see edges
-    const padding = 100;
     const scale = stage.scaleX();
-    
-    const maxX = padding;
-    const maxY = padding;
-    const minX = -(CANVAS_WIDTH * scale - dimensions.width + padding);
-    const minY = -(CANVAS_HEIGHT * scale - dimensions.height + padding);
+    const scaledCanvasWidth = CANVAS_WIDTH * scale;
+    const scaledCanvasHeight = CANVAS_HEIGHT * scale;
 
-    // Apply constraints
-    if (newPos.x > maxX) newPos.x = maxX;
-    if (newPos.x < minX) newPos.x = minX;
-    if (newPos.y > maxY) newPos.y = maxY;
-    if (newPos.y < minY) newPos.y = minY;
+    // Apply constraints based on whether canvas is larger than viewport
+    // This ensures smooth panning at all zoom levels
+    
+    // Horizontal constraints
+    if (scaledCanvasWidth > dimensions.width) {
+      // Canvas is wider than viewport - keep some canvas visible
+      const padding = 100;
+      const maxX = padding;
+      const minX = -(scaledCanvasWidth - dimensions.width + padding);
+      
+      if (newPos.x > maxX) newPos.x = maxX;
+      if (newPos.x < minX) newPos.x = minX;
+    } else {
+      // Canvas fits within viewport - allow free positioning with gentle bounds
+      const maxX = dimensions.width - scaledCanvasWidth + 100;
+      const minX = -100;
+      
+      if (newPos.x > maxX) newPos.x = maxX;
+      if (newPos.x < minX) newPos.x = minX;
+    }
+
+    // Vertical constraints
+    if (scaledCanvasHeight > dimensions.height) {
+      // Canvas is taller than viewport - keep some canvas visible
+      const padding = 100;
+      const maxY = padding;
+      const minY = -(scaledCanvasHeight - dimensions.height + padding);
+      
+      if (newPos.y > maxY) newPos.y = maxY;
+      if (newPos.y < minY) newPos.y = minY;
+    } else {
+      // Canvas fits within viewport - allow free positioning with gentle bounds
+      const maxY = dimensions.height - scaledCanvasHeight + 100;
+      const minY = -100;
+      
+      if (newPos.y > maxY) newPos.y = maxY;
+      if (newPos.y < minY) newPos.y = minY;
+    }
 
     setStagePos(newPos);
     stage.position(newPos);
@@ -349,29 +377,24 @@ const Canvas: React.FC = () => {
     // Calculate new scale
     let newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
 
-    // Constrain zoom to min/max (using dynamic minimum zoom)
-    if (newScale < minZoom) newScale = minZoom;
+    // Constrain zoom to min/max
+    if (newScale < MIN_ZOOM) newScale = MIN_ZOOM;
     if (newScale > MAX_ZOOM) newScale = MAX_ZOOM;
 
     setStageScale(newScale);
 
-    // If we're at minimum zoom, center the canvas
-    if (newScale === minZoom) {
-      centerCanvasAtMinZoom(dimensions, newScale);
-    } else {
-      // Calculate new position to zoom toward cursor
-      const mousePointTo = {
-        x: (pointer.x - stage.x()) / oldScale,
-        y: (pointer.y - stage.y()) / oldScale,
-      };
+    // Calculate new position to zoom toward cursor
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale,
+    };
 
-      const newPos = {
-        x: pointer.x - mousePointTo.x * newScale,
-        y: pointer.y - mousePointTo.y * newScale,
-      };
+    const newPos = {
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale,
+    };
 
-      setStagePos(newPos);
-    }
+    setStagePos(newPos);
   };
 
   /**
@@ -414,40 +437,35 @@ const Canvas: React.FC = () => {
     
     const oldScale = stage.scaleX();
     let newScale = oldScale - ZOOM_STEP;
-    if (newScale < minZoom) newScale = minZoom;
+    if (newScale < MIN_ZOOM) newScale = MIN_ZOOM;
 
     setStageScale(newScale);
 
-    // If we're at minimum zoom, center the canvas
-    if (newScale === minZoom) {
-      centerCanvasAtMinZoom(dimensions, newScale);
-    } else {
-      // Zoom toward center of viewport
-      const center = {
-        x: dimensions.width / 2,
-        y: dimensions.height / 2,
-      };
+    // Zoom toward center of viewport
+    const center = {
+      x: dimensions.width / 2,
+      y: dimensions.height / 2,
+    };
 
-      const mousePointTo = {
-        x: (center.x - stage.x()) / oldScale,
-        y: (center.y - stage.y()) / oldScale,
-      };
+    const mousePointTo = {
+      x: (center.x - stage.x()) / oldScale,
+      y: (center.y - stage.y()) / oldScale,
+    };
 
-      const newPos = {
-        x: center.x - mousePointTo.x * newScale,
-        y: center.y - mousePointTo.y * newScale,
-      };
+    const newPos = {
+      x: center.x - mousePointTo.x * newScale,
+      y: center.y - mousePointTo.y * newScale,
+    };
 
-      setStagePos(newPos);
-    }
+    setStagePos(newPos);
   };
 
   /**
    * Reset view to minimum zoom with canvas centered
    */
   const handleResetView = () => {
-    setStageScale(minZoom);
-    centerCanvasAtMinZoom(dimensions, minZoom);
+    setStageScale(MIN_ZOOM);
+    centerCanvasAtMinZoom(dimensions, MIN_ZOOM);
   };
 
   /**
@@ -677,7 +695,7 @@ const Canvas: React.FC = () => {
       {/* Canvas Controls */}
       <CanvasControls
         zoom={stageScale}
-        minZoom={minZoom}
+        minZoom={MIN_ZOOM}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onResetView={handleResetView}

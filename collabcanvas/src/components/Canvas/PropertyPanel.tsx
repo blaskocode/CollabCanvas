@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ColorPicker from '../UI/ColorPicker';
 import type { Shape } from '../../utils/types';
 
@@ -23,6 +23,9 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   const [opacity, setOpacity] = useState(shape?.opacity || 100);
   const [cornerRadius, setCornerRadius] = useState(shape?.cornerRadius || 0);
 
+  // Debounce timer refs
+  const debounceTimerRef = useRef<number | null>(null);
+
   // Update local state when shape changes
   useEffect(() => {
     if (shape) {
@@ -34,6 +37,25 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
       setCornerRadius(shape.cornerRadius || 0);
     }
   }, [shape?.id]); // Only reset when shape ID changes
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Debounced update function for sliders (300ms delay)
+  const debouncedUpdate = useCallback((updates: Partial<Shape>) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      onUpdate(updates);
+    }, 300);
+  }, [onUpdate]);
 
   // If no shape selected, don't render
   if (!shape) {
@@ -61,24 +83,24 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
     onUpdate({ stroke: newEnabled ? strokeColor : undefined });
   };
 
-  // Handle stroke width change
+  // Handle stroke width change (debounced for sliders)
   const handleStrokeWidthChange = (width: number) => {
     setStrokeWidth(width);
     if (strokeEnabled) {
-      onUpdate({ strokeWidth: width });
+      debouncedUpdate({ strokeWidth: width });
     }
   };
 
-  // Handle opacity change
+  // Handle opacity change (debounced for sliders)
   const handleOpacityChange = (value: number) => {
     setOpacity(value);
-    onUpdate({ opacity: value });
+    debouncedUpdate({ opacity: value });
   };
 
-  // Handle corner radius change
+  // Handle corner radius change (debounced for sliders)
   const handleCornerRadiusChange = (value: number) => {
     setCornerRadius(value);
-    onUpdate({ cornerRadius: value });
+    debouncedUpdate({ cornerRadius: value });
   };
 
   const isRectangle = shape.type === 'rectangle';

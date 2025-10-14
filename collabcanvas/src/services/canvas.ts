@@ -236,6 +236,14 @@ export const updateShape = async (
   updates: ShapeUpdateData
 ): Promise<void> => {
   try {
+    // Filter out undefined values to prevent Firestore errors
+    const filteredUpdates = Object.entries(updates).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as Record<string, any>);
+
     const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
     const canvasSnap = await getDoc(canvasRef);
 
@@ -248,7 +256,7 @@ export const updateShape = async (
       shape.id === shapeId
         ? {
             ...shape,
-            ...updates,
+            ...filteredUpdates,
             lastModifiedAt: Timestamp.now(),
           }
         : shape

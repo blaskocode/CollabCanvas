@@ -19,6 +19,29 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
   onChange,
   disabled = false,
 }) => {
+  const [hexInput, setHexInput] = React.useState(value.toUpperCase());
+
+  // Update local hex input when value prop changes
+  React.useEffect(() => {
+    setHexInput(value.toUpperCase());
+  }, [value]);
+
+  const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let hex = e.target.value.toUpperCase();
+    
+    // Auto-add # if not present
+    if (hex.length > 0 && !hex.startsWith('#')) {
+      hex = '#' + hex;
+    }
+    
+    setHexInput(hex);
+    
+    // Only call onChange if it's a valid complete hex color
+    if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      onChange(hex);
+    }
+  };
+
   return (
     <div className="space-y-2">
       <label className="text-xs font-medium text-gray-700 block">
@@ -44,14 +67,8 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
         {/* Hex value display and input */}
         <input
           type="text"
-          value={value.toUpperCase()}
-          onChange={(e) => {
-            const hex = e.target.value;
-            // Validate hex color format
-            if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-              onChange(hex);
-            }
-          }}
+          value={hexInput}
+          onChange={handleHexChange}
           placeholder="#000000"
           maxLength={7}
           disabled={disabled}

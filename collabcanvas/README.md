@@ -2,6 +2,12 @@
 
 A real-time collaborative design tool built with React, Firebase, and Konva.js. Multiple users can simultaneously create, move, and manipulate shapes on a shared canvas with real-time cursor tracking and presence awareness.
 
+## 🚀 Live Demo
+
+**[Try CollabCanvas Live →](https://collabcanvas-mvp.web.app)**
+
+Open in 2-3 browser windows to see real-time collaboration in action!
+
 ## 🚀 Features
 
 ### MVP Features (Phase 1)

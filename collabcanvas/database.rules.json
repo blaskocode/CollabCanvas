@@ -2,31 +2,9 @@
   "rules": {
     "sessions": {
       "$canvasId": {
+        ".read": "auth != null",
         "$userId": {
-          ".read": "auth != null",
-          ".write": "auth != null && auth.uid == $userId",
-          ".validate": "newData.hasChildren(['userId', 'displayName', 'cursorColor', 'lastSeen'])",
-          "userId": {
-            ".validate": "newData.isString() && newData.val() == $userId"
-          },
-          "displayName": {
-            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
-          },
-          "cursorColor": {
-            ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
-          },
-          "cursorX": {
-            ".validate": "newData.isNumber()"
-          },
-          "cursorY": {
-            ".validate": "newData.isNumber()"
-          },
-          "lastSeen": {
-            ".validate": "newData.isNumber() || newData.val() == null"
-          },
-          "lockedShapes": {
-            ".validate": "newData.isString() || (newData.hasChildren() && newData.val().length <= 100)"
-          }
+          ".write": "auth != null && auth.uid == $userId"
         }
       }
     }

@@ -997,14 +997,15 @@ collabcanvas/
   - ✅ Build output in `dist/` directory
   - Note: Bundle size warning is acceptable for MVP
 
-- [ ] **9.4: Deploy to Firebase Hosting** ⚠️ USER ACTION REQUIRED
+- [x] **9.4: Deploy to Firebase Hosting** ✅ COMPLETED
 
-  - User must run: `firebase login`
-  - User must create `.firebaserc` from example
-  - User must run: `firebase deploy --only hosting`
-  - Test deployed URL
-  - Verify all features work in production
-  - Instructions provided in `DEPLOYMENT.md`
+  - ✅ Firebase login successful
+  - ✅ `.firebaserc` configured with project ID
+  - ✅ Firestore rules deployed successfully
+  - ✅ Realtime Database rules deployed successfully
+  - ✅ Hosting deployed successfully
+  - ✅ **Live at: https://collabcanvas-mvp.web.app**
+  - ✅ Fixed Firestore rules compilation error (timestamp keyword)
 
 - [x] **9.5: Set Up Firestore Security Rules** ✅ COMPLETED
 

@@ -7,8 +7,8 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    function isValidTimestamp(timestamp) {
-      return timestamp is timestamp;
+    function isValidTimestamp(ts) {
+      return ts is timestamp;
     }
     
     // Canvas collection rules

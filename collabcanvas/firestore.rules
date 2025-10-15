@@ -25,7 +25,7 @@ service cloud.firestore {
         && shape.y is number
         && shape.width is number
         && shape.height is number
-        && shape.fill is string
+        && isValidHexColor(shape.fill)
         && shape.createdBy is string
         && isValidTimestamp(shape.createdAt)
         && shape.lastModifiedBy is string
@@ -48,10 +48,18 @@ service cloud.firestore {
         && (!shape.keys().hasAny(['cornerRadius']) || shape.cornerRadius == null || (shape.cornerRadius is number && shape.cornerRadius >= 0 && shape.cornerRadius <= 50));
     }
     
+    // Validate transform properties
+    function hasValidTransform(shape) {
+      return (!shape.keys().hasAny(['rotation']) || shape.rotation == null || (shape.rotation is number && shape.rotation >= 0 && shape.rotation <= 360))
+        && (!shape.keys().hasAny(['scaleX']) || shape.scaleX == null || (shape.scaleX is number && shape.scaleX > 0 && shape.scaleX <= 10))
+        && (!shape.keys().hasAny(['scaleY']) || shape.scaleY == null || (shape.scaleY is number && shape.scaleY > 0 && shape.scaleY <= 10));
+    }
+    
     // Validate shape-specific fields
     function isValidShape(shape) {
       return hasBaseShapeFields(shape)
         && hasValidStyling(shape)
+        && hasValidTransform(shape)
         && (
           // Rectangle: no additional required fields
           (shape.type == 'rectangle') ||

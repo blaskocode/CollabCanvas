@@ -106,6 +106,7 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   };
 
   const isRectangle = shape.type === 'rectangle';
+  const isText = shape.type === 'text';
 
   return (
     <div 
@@ -136,8 +137,9 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
         />
       </div>
 
-      {/* Stroke (Border) Controls */}
-      <div className="space-y-2">
+      {/* Stroke (Border) Controls - Hidden for text shapes */}
+      {!isText && (
+        <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-xs font-medium text-gray-700">
             Border
@@ -177,7 +179,8 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
             </div>
           </>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Opacity Slider */}
       <div className="space-y-1">
@@ -193,6 +196,34 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
           className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
         />
       </div>
+
+      {/* Transform Properties Display */}
+      {(shape.rotation !== undefined && shape.rotation !== 0) || 
+       (shape.scaleX !== undefined && shape.scaleX !== 1) || 
+       (shape.scaleY !== undefined && shape.scaleY !== 1) ? (
+        <div className="space-y-2 pt-2 border-t border-gray-200">
+          <div className="text-xs font-semibold text-gray-700">Transform</div>
+          
+          {shape.rotation !== undefined && shape.rotation !== 0 && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-gray-600">Rotation:</span>
+              <span className="font-medium text-gray-800">
+                {Math.round(shape.rotation)}°
+              </span>
+            </div>
+          )}
+          
+          {(shape.scaleX !== undefined && shape.scaleX !== 1) || 
+           (shape.scaleY !== undefined && shape.scaleY !== 1) ? (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-gray-600">Scale:</span>
+              <span className="font-medium text-gray-800">
+                {shape.scaleX?.toFixed(2) || 1} × {shape.scaleY?.toFixed(2) || 1}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Corner Radius (Rectangles only) */}
       {isRectangle && (

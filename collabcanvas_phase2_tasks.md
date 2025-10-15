@@ -14,7 +14,7 @@
 
 ### Tasks:
 
-- [ ] **10.1: Update Shape Type System**
+- [x] **10.1: Update Shape Type System**
   - Files to update: `src/utils/types.ts`
   - Change shape type from literal `'rectangle'` to union: `'rectangle' | 'circle' | 'text' | 'line'`
   - Add shape-specific properties:
@@ -24,7 +24,7 @@
   - Update Shape interface to include optional properties
   - Maintain backward compatibility with existing rectangles
 
-- [ ] **10.2: Create Circle Component**
+- [x] **10.2: Create Circle Component**
   - Files to create: `src/components/Canvas/shapes/Circle.tsx`
   - Use Konva Circle component
   - Properties: `x, y, radius, fill, stroke, strokeWidth`
@@ -32,7 +32,7 @@
   - Dragging and boundary constraints
   - Initial radius: 50px
 
-- [ ] **10.3: Create Text Component**
+- [x] **10.3: Create Text Component**
   - Files to create: `src/components/Canvas/shapes/Text.tsx`
   - Use Konva Text component
   - Properties: `text, fontSize, fontFamily, textAlign, fill`
@@ -41,7 +41,7 @@
   - Blur to save and sync to Firestore
   - Handle newlines and multiline text
 
-- [ ] **10.4: Create Line Component**
+- [x] **10.4: Create Line Component**
   - Files to create: `src/components/Canvas/shapes/Line.tsx`
   - Use Konva Line component
   - Properties: `points: [x1, y1, x2, y2], stroke, strokeWidth`
@@ -49,21 +49,21 @@
   - Update parent Shape position to bounding box
   - Default stroke: black, strokeWidth: 2px
 
-- [ ] **10.5: Update Shape Rendering**
+- [x] **10.5: Update Shape Rendering**
   - Files to update: `src/components/Canvas/Canvas.tsx`
   - Create factory function `renderShapeByType(shape, isSelected, callbacks)`
   - Import and render Circle, Text, Line based on type
   - Pass selection, drag, and lock state to each component
   - Handle TypeScript type guards for shape-specific properties
 
-- [ ] **10.6: Update Shape Creation UI**
+- [x] **10.6: Update Shape Creation UI**
   - Files to update: `src/components/Canvas/CanvasControls.tsx`
   - Replace single "Add Shape" button with shape type selector
   - Options: Rectangle, Circle, Text, Line (radio buttons or dropdown)
   - Display selected type in UI
   - Create shapes with correct type and default properties
 
-- [ ] **10.7: Create Shape Factory**
+- [x] **10.7: Create Shape Factory**
   - Files to update: `src/services/canvas.ts`
   - Function: `createShapeByType(type, position, userId)` with type-specific defaults
   - Rectangle: 100x100, gray fill
@@ -72,13 +72,13 @@
   - Line: [x, y, x+100, y+100] (default line)
   - Return properly typed Shape object
 
-- [ ] **10.8: Update Firestore Schema Validation**
+- [x] **10.8: Update Firestore Schema Validation**
   - Files to update: `firestore.rules`
   - Validate `type` field is one of allowed values
   - Validate shape-specific fields are present for correct types
   - Helper function: `isValidShape(shape)` to check all required fields
 
-- [ ] **10.9: Test Multiple Shape Types**
+- [x] **10.9: Test Multiple Shape Types**
   - Create rectangles, circles, text, lines
   - Verify each renders correctly
   - Verify selection and dragging works for each type
@@ -87,12 +87,12 @@
   - Verify 60 FPS maintained with mixed shapes
 
 **PR Checklist:**
-- [ ] All 4 shape types render correctly
-- [ ] Can create each shape type
-- [ ] Selection and dragging work for all types
-- [ ] Shape-specific properties stored and synced
-- [ ] 60 FPS maintained
-- [ ] TypeScript compilation successful
+- [x] All 4 shape types render correctly
+- [x] Can create each shape type
+- [x] Selection and dragging work for all types
+- [x] Shape-specific properties stored and synced
+- [x] 60 FPS maintained
+- [x] TypeScript compilation successful
 
 **Estimated Effort:** 2-3 hours
 
@@ -105,7 +105,7 @@
 
 ### Tasks:
 
-- [ ] **11.1: Extend Shape Interface**
+- [x] **11.1: Extend Shape Interface**
   - Files to update: `src/utils/types.ts`
   - Add optional fields:
     ```typescript
@@ -117,7 +117,7 @@
     ```
   - Add defaults for new fields
 
-- [ ] **11.2: Create Color Picker Component**
+- [x] **11.2: Create Color Picker Component**
   - Files to create: `src/components/UI/ColorPicker.tsx`
   - Use HTML5 `<input type="color">` as base
   - Display current color swatch
@@ -125,7 +125,7 @@
   - Optional: Preset color palette (user colors)
   - Return hex color string on change
 
-- [ ] **11.3: Create Style Property Panel**
+- [x] **11.3: Create Style Property Panel**
   - Files to create: `src/components/Canvas/PropertyPanel.tsx`
   - Show when shape is selected
   - Position: Floating panel on right side or sidebar
@@ -138,26 +138,26 @@
   - Real-time preview as user adjusts
   - Hide when no shape selected
 
-- [ ] **11.4: Integrate Property Panel in Canvas**
+- [x] **11.4: Integrate Property Panel in Canvas**
   - Files to update: `src/components/Canvas/Canvas.tsx`
   - Render PropertyPanel when shape selected
   - Pass selected shape ID and update callback
   - Handle TypeScript typing for shape-specific controls
 
-- [ ] **11.5: Add Styling Update Handler**
+- [x] **11.5: Add Styling Update Handler**
   - Files to update: `src/contexts/CanvasContext.tsx`
   - Function: `styleShape(id, styleUpdates)` 
   - Accepts partial style object
   - Calls `updateShape(id, styleUpdates)`
   - Syncs to Firestore with updated styling
 
-- [ ] **11.6: Update Shape Components**
+- [x] **11.6: Update Shape Components**
   - Files to update: `src/components/Canvas/shapes/Rectangle.tsx`, `Circle.tsx`, `Text.tsx`, `Line.tsx`
   - Apply `fill, stroke, strokeWidth, opacity` from props
   - Apply `cornerRadius` for rectangles
   - Set Konva props: `fill()`, `stroke()`, `strokeWidth()`, `opacity()`
 
-- [ ] **11.7: Update Firestore Rules**
+- [x] **11.7: Update Firestore Rules**
   - Files to update: `firestore.rules`
   - Validate `fill` is valid hex color
   - Validate `stroke` is valid hex or null
@@ -165,7 +165,7 @@
   - Validate `opacity` is 0-100
   - Validate `cornerRadius` is 0-50
 
-- [ ] **11.8: Test Styling Changes**
+- [x] **11.8: Test Styling Changes**
   - Create shapes with different colors
   - Verify color changes sync in real-time
   - Test borders and opacity
@@ -174,12 +174,12 @@
   - Test 5+ concurrent users styling shapes
 
 **PR Checklist:**
-- [ ] Color picker works and saves colors
-- [ ] Styling changes sync <100ms
-- [ ] Property panel intuitive and responsive
-- [ ] All styling properties validated in Firestore rules
-- [ ] 60 FPS maintained while adjusting styles
-- [ ] TypeScript compilation successful
+- [x] Color picker works and saves colors
+- [x] Styling changes sync <100ms
+- [x] Property panel intuitive and responsive
+- [x] All styling properties validated in Firestore rules
+- [x] 60 FPS maintained while adjusting styles
+- [x] TypeScript compilation successful
 
 **Estimated Effort:** 2-3 hours
 
@@ -192,7 +192,7 @@
 
 ### Tasks:
 
-- [ ] **12.1: Add Transformation Properties to Shape**
+- [x] **12.1: Add Transformation Properties to Shape**
   - Files to update: `src/utils/types.ts`
   - Add optional fields:
     ```typescript
@@ -202,38 +202,38 @@
     ```
   - Update Shape interface to include these fields
 
-- [ ] **12.2: Integrate Konva Transformer**
+- [x] **12.2: Integrate Konva Transformer**
   - Files to update: `src/components/Canvas/Canvas.tsx`
   - Import Konva Transformer component
   - Create transformer ref
   - Attach transformer to selected shape
   - Handle `transformend` event to save transformations
 
-- [ ] **12.3: Create Transform Handler**
+- [x] **12.3: Create Transform Handler**
   - Files to update: `src/contexts/CanvasContext.tsx`
   - Function: `transformShape(id, rotation, scaleX, scaleY)`
   - Calculate new width/height based on scale
   - Store rotation and scale in shape
   - Sync to Firestore
 
-- [ ] **12.4: Update Shape Components for Transforms**
+- [x] **12.4: Update Shape Components for Transforms**
   - Files to update: `src/components/Canvas/shapes/*.tsx`
   - Apply `rotation`, `scaleX`, `scaleY` from shape props
   - Use Konva's `rotation()`, `scaleX()`, `scaleY()` methods
 
-- [ ] **12.5: Handle Boundary Constraints During Transform**
+- [x] **12.5: Handle Boundary Constraints During Transform**
   - Files to update: `src/components/Canvas/Canvas.tsx`
   - After transform ends, check if shape exceeds canvas bounds
   - If exceeds, clamp to boundaries and re-save
   - Prevent user from scaling off-canvas
 
-- [ ] **12.6: Add Rotation Indicator**
+- [x] **12.6: Add Rotation Indicator**
   - Files to update: `src/components/Canvas/PropertyPanel.tsx`
   - Show rotation value in degrees (read-only during transform)
   - Display rotation feedback during active transform
   - Show current scale factor (display-only)
 
-- [ ] **12.7: Test Transformations**
+- [x] **12.7: Test Transformations**
   - Resize shapes using corner and edge handles
   - Rotate shapes with rotation handle
   - Verify transformations sync in real-time
@@ -241,19 +241,19 @@
   - Test with mixed shape types
   - Verify 60 FPS during transforms
 
-- [ ] **12.8: Update Firestore Rules**
+- [x] **12.8: Update Firestore Rules**
   - Files to update: `firestore.rules`
   - Validate `rotation` is 0-360
   - Validate `scaleX` and `scaleY` are positive numbers
   - Allow transform updates for unlocked shapes only
 
 **PR Checklist:**
-- [ ] Resize handles appear on selected shape
-- [ ] Rotation handle works
-- [ ] Transformations sync in real-time
-- [ ] Boundary constraints work correctly
-- [ ] 60 FPS maintained during transforms
-- [ ] TypeScript compilation successful
+- [x] Resize handles appear on selected shape
+- [x] Rotation handle works
+- [x] Transformations sync in real-time
+- [x] Boundary constraints work correctly
+- [x] 60 FPS maintained during transforms
+- [x] TypeScript compilation successful
 
 **Estimated Effort:** 2-3 hours
 

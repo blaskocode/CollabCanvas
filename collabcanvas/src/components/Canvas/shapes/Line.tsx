@@ -231,5 +231,6 @@ const Line: React.FC<LineProps> = ({
   );
 };
 
-export default Line;
+// Memoize component to prevent re-renders when props haven't changed
+export default React.memo(Line);
 

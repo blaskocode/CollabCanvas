@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Text as KonvaText } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -18,6 +18,9 @@ interface TextProps {
   stroke?: string;
   strokeWidth?: number;
   opacity?: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
@@ -30,8 +33,7 @@ interface TextProps {
 
 /**
  * Text Component
- * Renders a text shape with selection and dragging
- * Note: Text editing will be enhanced in a future update
+ * Renders a text shape with selection, dragging, and editing
  * 
  * @param props - Text properties
  */
@@ -49,6 +51,9 @@ const Text: React.FC<TextProps> = ({
   stroke,
   strokeWidth = 0,
   opacity = 100,
+  rotation = 0,
+  scaleX = 1,
+  scaleY = 1,
   isSelected,
   isLocked,
   lockedBy,
@@ -56,8 +61,22 @@ const Text: React.FC<TextProps> = ({
   onSelect,
   onDragStart,
   onDragEnd,
+  onTextChange,
 }) => {
   const textRef = useRef<Konva.Text>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(text);
+  
+  // Store callback in ref to avoid recreating textarea on every render
+  const onTextChangeRef = useRef(onTextChange);
+  useEffect(() => {
+    onTextChangeRef.current = onTextChange;
+  }, [onTextChange]);
+
+  // Update edit value when text prop changes
+  useEffect(() => {
+    setEditValue(text);
+  }, [text]);
 
   /**
    * Handle shape click to select
@@ -65,6 +84,21 @@ const Text: React.FC<TextProps> = ({
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
     onSelect();
+  };
+
+  /**
+   * Handle double-click to enter edit mode
+   */
+  const handleDoubleClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true;
+    
+    // Don't allow editing if locked by another user
+    if (isLockedByOtherUser) {
+      return;
+    }
+    
+    setIsEditing(true);
+    setEditValue(text);
   };
 
   /**
@@ -118,8 +152,8 @@ const Text: React.FC<TextProps> = ({
   const isLockedByOtherUser = isLocked && lockedBy && lockedBy !== currentUserId;
 
   // Determine stroke based on selection and lock state
-  let finalStroke = stroke || 'transparent';
-  let finalStrokeWidth = strokeWidth;
+  let finalStroke = 'transparent';
+  let finalStrokeWidth = 0;
 
   if (isSelected) {
     finalStroke = '#2563eb'; // Blue for selected
@@ -130,6 +164,105 @@ const Text: React.FC<TextProps> = ({
     finalStroke = '#ef4444'; // Red for locked by another user
     finalStrokeWidth = 2;
   }
+
+  // Render textarea portal outside Konva tree using useEffect
+  // Only depends on isEditing to avoid recreating on every pan/zoom
+  useEffect(() => {
+    if (!isEditing) return;
+
+    // Get screen position from Konva node directly (accounts for stage transformation)
+    const node = textRef.current;
+    if (!node) return;
+
+    const stage = node.getStage();
+    if (!stage) return;
+
+    const absolutePosition = node.getAbsolutePosition();
+    const stageScale = stage.scaleX(); // Assume uniform scale
+    
+    // Calculate screen coordinates
+    const screenX = absolutePosition.x;
+    const screenY = absolutePosition.y;
+    const screenWidth = width * stageScale;
+    const screenHeight = height * stageScale;
+    const screenFontSize = fontSize * stageScale;
+
+    // Create textarea element
+    const textarea = document.createElement('textarea');
+    textarea.value = text; // Start with the current text
+    textarea.style.cssText = `
+      position: absolute;
+      top: ${screenY}px;
+      left: ${screenX}px;
+      width: ${screenWidth}px;
+      height: ${screenHeight}px;
+      font-size: ${screenFontSize}px;
+      font-family: ${fontFamily};
+      text-align: ${textAlign};
+      color: ${fill};
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid #2563eb;
+      border-radius: 4px;
+      padding: 5px;
+      resize: none;
+      outline: none;
+      z-index: 1000;
+    `;
+
+    // Track if we should save on blur
+    let shouldSave = true;
+
+    // Event handlers - inline to avoid dependency issues
+    const handleChange = (e: Event) => {
+      // Update is handled by textarea itself, no need to sync to React state during editing
+    };
+
+    const handleBlur = () => {
+      if (shouldSave) {
+        const finalValue = textarea.value.trim();
+        setIsEditing(false);
+        // Only save if the value actually changed and is not empty
+        if (finalValue && finalValue !== text && onTextChangeRef.current) {
+          onTextChangeRef.current(finalValue);
+        }
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        shouldSave = false;
+        setIsEditing(false);
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const finalValue = textarea.value.trim();
+        shouldSave = false; // Prevent blur from also saving
+        setIsEditing(false);
+        // Only save if the value actually changed and is not empty
+        if (finalValue && finalValue !== text && onTextChangeRef.current) {
+          onTextChangeRef.current(finalValue);
+        }
+      }
+    };
+
+    textarea.addEventListener('input', handleChange);
+    textarea.addEventListener('blur', handleBlur);
+    textarea.addEventListener('keydown', handleKeyDown);
+
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    // Cleanup
+    return () => {
+      textarea.removeEventListener('input', handleChange);
+      textarea.removeEventListener('blur', handleBlur);
+      textarea.removeEventListener('keydown', handleKeyDown);
+      if (textarea.parentNode) {
+        document.body.removeChild(textarea);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
 
   return (
     <KonvaText
@@ -147,9 +280,14 @@ const Text: React.FC<TextProps> = ({
       stroke={finalStroke}
       strokeWidth={finalStrokeWidth}
       opacity={opacity / 100} // Convert 0-100 to 0-1
-      draggable={!isLockedByOtherUser}
+      rotation={rotation}
+      scaleX={1}
+      scaleY={1}
+      draggable={!isLockedByOtherUser && !isEditing}
       onClick={handleClick}
       onTap={handleClick}
+      onDblClick={handleDoubleClick}
+      onDblTap={handleDoubleClick}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragMove={handleDragMove}
@@ -161,5 +299,5 @@ const Text: React.FC<TextProps> = ({
   );
 };
 
-export default Text;
-
+// Memoize component to prevent re-renders when props haven't changed
+export default React.memo(Text);

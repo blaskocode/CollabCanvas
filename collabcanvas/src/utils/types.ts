@@ -46,6 +46,11 @@ export interface Shape {
   opacity?: number; // Opacity (0-100)
   cornerRadius?: number; // Corner radius for rectangles (0-50px)
   
+  // Transform properties
+  rotation?: number; // Rotation in degrees (0-360)
+  scaleX?: number; // Horizontal scale (1.0 = 100%)
+  scaleY?: number; // Vertical scale (1.0 = 100%)
+  
   // Circle-specific properties
   radius?: number;
   
@@ -75,6 +80,11 @@ export interface ShapeCreateData {
   strokeWidth?: number;
   opacity?: number;
   cornerRadius?: number;
+  
+  // Transform properties
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   
   // Shape-specific properties
   radius?: number;

@@ -13,6 +13,9 @@ interface CircleProps {
   stroke?: string;
   strokeWidth?: number;
   opacity?: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
@@ -37,6 +40,9 @@ const Circle: React.FC<CircleProps> = ({
   stroke,
   strokeWidth = 0,
   opacity = 100,
+  rotation = 0,
+  scaleX = 1,
+  scaleY = 1,
   isSelected,
   isLocked,
   lockedBy,
@@ -141,6 +147,9 @@ const Circle: React.FC<CircleProps> = ({
       stroke={finalStroke}
       strokeWidth={finalStrokeWidth}
       opacity={opacity / 100} // Convert 0-100 to 0-1
+      rotation={rotation}
+      scaleX={scaleX}
+      scaleY={scaleY}
       draggable={!isLockedByOtherUser}
       onClick={handleClick}
       onTap={handleTap}
@@ -154,5 +163,6 @@ const Circle: React.FC<CircleProps> = ({
   );
 };
 
-export default Circle;
+// Memoize component to prevent re-renders when props haven't changed
+export default React.memo(Circle);
 

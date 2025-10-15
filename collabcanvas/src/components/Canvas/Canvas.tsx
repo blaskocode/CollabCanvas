@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Stage, Layer } from 'react-konva';
+import { Stage, Layer, Transformer } from 'react-konva';
+import type Konva from 'konva';
 import { useCanvasContext } from '../../contexts/CanvasContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useCursors } from '../../hooks/useCursors';
@@ -47,6 +48,10 @@ const Canvas: React.FC = () => {
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const autoPanFrameId = useRef<number | null>(null);
 
+  // Transformer refs for resize/rotate functionality
+  const transformerRef = useRef<Konva.Transformer>(null);
+  const selectedShapeRef = useRef<Konva.Node | null>(null);
+
   /**
    * Center the canvas in the viewport at minimum zoom
    * Calculates the position to center the canvas based on which dimension has extra space
@@ -85,6 +90,12 @@ const Canvas: React.FC = () => {
   // Keyboard listener for delete and escape functionality
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't process keyboard shortcuts if user is typing in an input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
       // Escape key: deselect current selection
       if (e.key === 'Escape') {
         if (selectedId) {
@@ -527,6 +538,9 @@ const Canvas: React.FC = () => {
             strokeWidth={shape.strokeWidth}
             opacity={shape.opacity}
             cornerRadius={shape.cornerRadius}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
           />
         );
       
@@ -542,6 +556,9 @@ const Canvas: React.FC = () => {
             stroke={shape.stroke}
             strokeWidth={shape.strokeWidth}
             opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
           />
         );
       
@@ -562,6 +579,9 @@ const Canvas: React.FC = () => {
             stroke={shape.stroke}
             strokeWidth={shape.strokeWidth}
             opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
             onTextChange={async (newText) => {
               try {
                 await updateShape(shape.id, { text: newText });
@@ -629,6 +649,147 @@ const Canvas: React.FC = () => {
     }
   }, [selectedId, updateShape, toast]);
 
+  /**
+   * Effect to attach Transformer to selected shape
+   * Finds the shape node by ID and attaches the Transformer to it
+   */
+  useEffect(() => {
+    const transformer = transformerRef.current;
+    if (!transformer) return;
+
+    if (selectedId && selectedShape) {
+      // Don't show transformer for lines (they use custom endpoint handles)
+      if (selectedShape.type === 'line') {
+        transformer.nodes([]);
+        return;
+      }
+
+      // Don't show transformer if shape is locked by another user
+      const isLockedByOtherUser = selectedShape.isLocked && 
+                                   selectedShape.lockedBy && 
+                                   selectedShape.lockedBy !== currentUser?.uid;
+      if (isLockedByOtherUser) {
+        transformer.nodes([]);
+        return;
+      }
+
+      // Find the shape node in the layer
+      const stage = stageRef?.current;
+      if (!stage) return;
+
+      const layer = stage.findOne('Layer');
+      if (!layer) return;
+
+      const node = layer.findOne(`#${selectedId}`);
+      if (node) {
+        selectedShapeRef.current = node;
+        transformer.nodes([node]);
+        
+        // Configure transformer based on shape type
+        if (selectedShape.type === 'circle') {
+          // Circle: maintain aspect ratio (uniform scaling)
+          transformer.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+          transformer.keepRatio(true);
+        } else {
+          // Rectangle and Text: allow free resizing
+          transformer.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+          transformer.keepRatio(false);
+        }
+        
+        transformer.getLayer()?.batchDraw();
+      }
+    } else {
+      // No selection - clear transformer
+      transformer.nodes([]);
+      selectedShapeRef.current = null;
+      transformer.getLayer()?.batchDraw();
+    }
+  }, [selectedId, selectedShape, currentUser?.uid, stageRef]);
+
+  /**
+   * Handle transform end - save rotation and scale to Firestore
+   * Calculates and normalizes rotation, applies scale to width/height
+   */
+  const handleTransformEnd = useCallback(async () => {
+    const node = selectedShapeRef.current;
+    if (!node || !selectedId) return;
+
+    // Get transform values
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const rotation = node.rotation();
+
+    // Normalize rotation to 0-360
+    const normalizedRotation = ((rotation % 360) + 360) % 360;
+
+    // Calculate new dimensions based on scale
+    const shape = shapes.find(s => s.id === selectedId);
+    if (!shape) return;
+
+    // Check if shape is locked by another user
+    const isLockedByOtherUser = shape.isLocked && 
+                                 shape.lockedBy && 
+                                 shape.lockedBy !== currentUser?.uid;
+    if (isLockedByOtherUser) {
+      toast.error('Cannot transform: This shape is locked by another user');
+      return;
+    }
+
+    try {
+      const updates: Partial<ShapeType> = {
+        rotation: normalizedRotation,
+        scaleX,
+        scaleY,
+      };
+
+      // For circles, update radius based on scale
+      if (shape.type === 'circle' && shape.radius) {
+        updates.radius = shape.radius * scaleX;
+        // Reset scale after applying to radius
+        updates.scaleX = 1;
+        updates.scaleY = 1;
+        node.scaleX(1);
+        node.scaleY(1);
+      }
+
+      // For rectangles and text, update width/height
+      if (shape.type === 'rectangle' || shape.type === 'text') {
+        updates.width = shape.width * scaleX;
+        updates.height = shape.height * scaleY;
+        // Reset scale after applying to dimensions
+        updates.scaleX = 1;
+        updates.scaleY = 1;
+        node.scaleX(1);
+        node.scaleY(1);
+      }
+
+      // Check boundary constraints
+      const nodeBox = node.getClientRect();
+      const x = node.x();
+      const y = node.y();
+      
+      // Simple boundary check - ensure shape center is within canvas
+      let constrainedX = x;
+      let constrainedY = y;
+      
+      if (nodeBox.x < 0) constrainedX = x - nodeBox.x;
+      if (nodeBox.y < 0) constrainedY = y - nodeBox.y;
+      if (nodeBox.x + nodeBox.width > CANVAS_WIDTH) constrainedX = x - (nodeBox.x + nodeBox.width - CANVAS_WIDTH);
+      if (nodeBox.y + nodeBox.height > CANVAS_HEIGHT) constrainedY = y - (nodeBox.y + nodeBox.height - CANVAS_HEIGHT);
+      
+      if (constrainedX !== x || constrainedY !== y) {
+        updates.x = constrainedX;
+        updates.y = constrainedY;
+        node.position({ x: constrainedX, y: constrainedY });
+      }
+
+      await updateShape(selectedId, updates);
+    } catch (error) {
+      console.error('Error saving transformation:', error);
+      toast.error('Failed to save transformation');
+    }
+  }, [selectedId, shapes, currentUser?.uid, updateShape, toast]);
+
   // Show loading state while shapes are being fetched
   if (loading) {
     return (
@@ -662,6 +823,35 @@ const Canvas: React.FC = () => {
           {/* Background grid or color can be added here */}
           {/* Render all shapes */}
           {shapes.map((shape) => renderShapeByType(shape, shape.id === selectedId))}
+          
+          {/* Transformer for resize and rotate */}
+          <Transformer
+            ref={transformerRef}
+            onTransform={() => {
+              // For text shapes, prevent font scaling by keeping scale at 1 and adjusting width/height instead
+              const node = selectedShapeRef.current;
+              if (node && selectedShape && selectedShape.type === 'text') {
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+                
+                // Apply scale to width/height
+                node.setAttrs({
+                  width: Math.max(20, node.width() * scaleX),
+                  height: Math.max(20, node.height() * scaleY),
+                  scaleX: 1,
+                  scaleY: 1,
+                });
+              }
+            }}
+            onTransformEnd={handleTransformEnd}
+            boundBoxFunc={(oldBox, newBox) => {
+              // Prevent transformer from making shapes too small
+              if (newBox.width < 10 || newBox.height < 10) {
+                return oldBox;
+              }
+              return newBox;
+            }}
+          />
         </Layer>
       </Stage>
 

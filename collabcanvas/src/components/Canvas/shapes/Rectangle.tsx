@@ -15,6 +15,9 @@ interface RectangleProps {
   strokeWidth?: number;
   opacity?: number;
   cornerRadius?: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
@@ -41,6 +44,9 @@ const Rectangle: React.FC<RectangleProps> = ({
   strokeWidth = 0,
   opacity = 100,
   cornerRadius = 0,
+  rotation = 0,
+  scaleX = 1,
+  scaleY = 1,
   isSelected,
   isLocked,
   lockedBy,
@@ -149,6 +155,9 @@ const Rectangle: React.FC<RectangleProps> = ({
       strokeWidth={finalStrokeWidth}
       opacity={opacity / 100} // Convert 0-100 to 0-1
       cornerRadius={cornerRadius}
+      rotation={rotation}
+      scaleX={scaleX}
+      scaleY={scaleY}
       draggable={!isLockedByOtherUser} // Only draggable if not locked by another user
       onClick={handleClick}
       onTap={handleTap}
@@ -162,5 +171,6 @@ const Rectangle: React.FC<RectangleProps> = ({
   );
 };
 
-export default Rectangle;
+// Memoize component to prevent re-renders when props haven't changed
+export default React.memo(Rectangle);
 

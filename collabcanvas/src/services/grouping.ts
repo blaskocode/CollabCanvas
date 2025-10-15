@@ -7,8 +7,8 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Shape, ShapeGroup, CanvasDocument, ShapeUpdateData } from '../utils/types';
-import { updateShape, deleteShape, createShape } from './canvas';
+import type { Shape, ShapeGroup, CanvasDocument } from '../utils/types';
+import { updateShape, createShape } from './canvas';
 
 /**
  * Grouping Service

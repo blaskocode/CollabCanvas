@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Text as KonvaText } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -48,12 +48,8 @@ const Text: React.FC<TextProps> = ({
   fontFamily = 'Arial',
   textAlign = 'left',
   fill,
-  stroke,
-  strokeWidth = 0,
   opacity = 100,
   rotation = 0,
-  scaleX = 1,
-  scaleY = 1,
   isSelected,
   isLocked,
   lockedBy,
@@ -65,18 +61,12 @@ const Text: React.FC<TextProps> = ({
 }) => {
   const textRef = useRef<Konva.Text>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(text);
   
   // Store callback in ref to avoid recreating textarea on every render
   const onTextChangeRef = useRef(onTextChange);
   useEffect(() => {
     onTextChangeRef.current = onTextChange;
   }, [onTextChange]);
-
-  // Update edit value when text prop changes
-  useEffect(() => {
-    setEditValue(text);
-  }, [text]);
 
   /**
    * Handle shape click to select
@@ -98,7 +88,6 @@ const Text: React.FC<TextProps> = ({
     }
     
     setIsEditing(true);
-    setEditValue(text);
   };
 
   /**
@@ -213,7 +202,7 @@ const Text: React.FC<TextProps> = ({
     let shouldSave = true;
 
     // Event handlers - inline to avoid dependency issues
-    const handleChange = (e: Event) => {
+    const handleChange = () => {
       // Update is handled by textarea itself, no need to sync to React state during editing
     };
 

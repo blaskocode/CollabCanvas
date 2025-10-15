@@ -24,9 +24,12 @@ import type { Shape as ShapeType } from '../../utils/types';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, undo, redo, canUndo, canRedo } = useCanvasContext();
+  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, deleteGroup, undo, redo, canUndo, canRedo } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
+  
+  // Track last clicked shape for two-click selection
+  const lastClickedShapeRef = useRef<{ id: string; timestamp: number } | null>(null);
   
   // Box select state
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -58,6 +61,9 @@ const Canvas: React.FC = () => {
   // Auto-pan state for shape dragging near viewport edges
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const autoPanFrameId = useRef<number | null>(null);
+  
+  // Group dragging state
+  const groupDragRef = useRef<{ groupId: string; initialPositions: Map<string, { x: number; y: number }> } | null>(null);
 
   // Transformer refs for resize/rotate functionality
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -187,6 +193,52 @@ const Canvas: React.FC = () => {
         e.preventDefault();
         if (canRedo) {
           redo();
+        }
+        return;
+      }
+
+      // Ctrl+G: Group selected shapes
+      if ((e.ctrlKey || e.metaKey) && e.key === 'g' && !e.shiftKey) {
+        e.preventDefault();
+        if (selectedIds.length >= 2) {
+          groupShapes(selectedIds)
+            .then(() => {
+              toast.success(`Grouped ${selectedIds.length} shapes`);
+            })
+            .catch((err) => {
+              console.error('Error grouping shapes:', err);
+              toast.error('Failed to group shapes');
+            });
+        } else if (selectedIds.length === 1) {
+          toast.error('Select at least 2 shapes to group');
+        }
+        return;
+      }
+
+      // Ctrl+Shift+G: Ungroup selected group
+      if ((e.ctrlKey || e.metaKey) && e.key === 'G' && e.shiftKey) {
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          // Find if any selected shapes belong to groups
+          const selectedShapesWithGroups = shapes
+            .filter(s => selectedIds.includes(s.id) && s.groupId);
+          
+          if (selectedShapesWithGroups.length > 0) {
+            // Get unique group IDs
+            const groupIds = [...new Set(selectedShapesWithGroups.map(s => s.groupId).filter(Boolean))];
+            
+            // Ungroup all
+            Promise.all(groupIds.map(groupId => ungroupShapes(groupId!)))
+              .then(() => {
+                toast.success(`Ungrouped ${groupIds.length} group(s)`);
+              })
+              .catch((err) => {
+                console.error('Error ungrouping shapes:', err);
+                toast.error('Failed to ungroup shapes');
+              });
+          } else {
+            toast.error('Selected shapes are not in a group');
+          }
         }
         return;
       }
@@ -346,25 +398,94 @@ const Canvas: React.FC = () => {
   }, [isDraggingShape, stagePos, stageScale, dimensions]);
 
   /**
-   * Handle shape drag start - enables auto-pan
+   * Handle shape drag start - enables auto-pan and locks group shapes
    */
-  const handleShapeDragStart = useCallback((_shapeId: string) => {
+  const handleShapeDragStart = useCallback((shapeId: string) => {
     setIsDraggingShape(true);
-  }, []);
+    
+    const shape = shapes.find(s => s.id === shapeId);
+    if (!shape || !shape.groupId || !currentUser) return;
+    
+    // Check if dragging a grouped shape
+    const group = groups.find(g => g.id === shape.groupId);
+    if (!group) return;
+    
+    // Check if all shapes in the group are selected
+    const allSelected = group.shapeIds.every(id => selectedIds.includes(id));
+    
+    if (allSelected) {
+      // Save initial positions for all shapes in the group
+      const initialPositions = new Map<string, { x: number; y: number }>();
+      group.shapeIds.forEach(id => {
+        const groupShape = shapes.find(s => s.id === id);
+        if (groupShape) {
+          initialPositions.set(id, { x: groupShape.x, y: groupShape.y });
+        }
+      });
+      
+      groupDragRef.current = {
+        groupId: group.id,
+        initialPositions
+      };
+      
+      // Lock all shapes in the group
+      group.shapeIds.forEach(id => {
+        const groupShape = shapes.find(s => s.id === id);
+        if (groupShape && (!groupShape.isLocked || groupShape.lockedBy === currentUser.uid)) {
+          lockShape(id).catch(err => console.error('Error locking group shape:', err));
+        }
+      });
+    }
+  }, [shapes, groups, selectedIds, currentUser, lockShape]);
 
   /**
-   * Handle shape drag end - disables auto-pan and updates position
+   * Handle shape drag end - disables auto-pan and updates position(s)
    */
   const handleShapeDragEnd = useCallback(async (shapeId: string, x: number, y: number) => {
     setIsDraggingShape(false);
-
-    // Update shape position in Firestore
-    try {
-      await updateShape(shapeId, { x, y });
-    } catch (error) {
-      console.error('Error updating shape position:', error);
+    
+    const groupDrag = groupDragRef.current;
+    
+    if (groupDrag) {
+      // Dragging a group - calculate delta and move all shapes
+      const initialPos = groupDrag.initialPositions.get(shapeId);
+      if (initialPos) {
+        const deltaX = x - initialPos.x;
+        const deltaY = y - initialPos.y;
+        
+        // Update all shapes in the group
+        try {
+          await Promise.all(
+            Array.from(groupDrag.initialPositions.entries()).map(([id, pos]) => {
+              const newX = pos.x + deltaX;
+              const newY = pos.y + deltaY;
+              return updateShape(id, { x: newX, y: newY });
+            })
+          );
+          
+          // Unlock all shapes in the group
+          const group = groups.find(g => g.id === groupDrag.groupId);
+          if (group) {
+            group.shapeIds.forEach(id => {
+              unlockShape(id).catch(err => console.error('Error unlocking group shape:', err));
+            });
+          }
+        } catch (error) {
+          console.error('Error updating group positions:', error);
+          toast.error('Failed to move group');
+        }
+      }
+      
+      groupDragRef.current = null;
+    } else {
+      // Normal single shape drag
+      try {
+        await updateShape(shapeId, { x, y });
+      } catch (error) {
+        console.error('Error updating shape position:', error);
+      }
     }
-  }, [updateShape]);
+  }, [shapes, groups, updateShape, unlockShape, toast]);
 
   /**
    * Handle mouse move to update cursor position
@@ -732,7 +853,33 @@ const Canvas: React.FC = () => {
       currentUserId: currentUser?.uid || null,
       onSelect: (e?: any) => {
         const shiftKey = e?.evt?.shiftKey || false;
-        selectShape(shape.id, { shift: shiftKey });
+        
+        // Two-click selection for grouped shapes
+        if (shape.groupId && !shiftKey) {
+          const now = Date.now();
+          const lastClick = lastClickedShapeRef.current;
+          
+          // Check if this is a second click on the same shape within 500ms
+          if (lastClick && lastClick.id === shape.id && (now - lastClick.timestamp) < 500) {
+            // Second click: select just this shape
+            selectShape(shape.id, { shift: false });
+            lastClickedShapeRef.current = null; // Reset
+          } else {
+            // First click: select the entire group
+            const group = groups.find(g => g.id === shape.groupId);
+            if (group) {
+              selectMultipleShapes(group.shapeIds);
+              lastClickedShapeRef.current = { id: shape.id, timestamp: now };
+            } else {
+              // Group not found, select just the shape
+              selectShape(shape.id, { shift: false });
+            }
+          }
+        } else {
+          // Not in a group or shift-click: normal selection
+          selectShape(shape.id, { shift: shiftKey });
+          lastClickedShapeRef.current = null; // Reset
+        }
       },
       onDragStart: () => handleShapeDragStart(shape.id),
       onDragEnd: (x: number, y: number) => handleShapeDragEnd(shape.id, x, y),
@@ -1050,6 +1197,28 @@ const Canvas: React.FC = () => {
           {/* Render all shapes sorted by zIndex */}
           {sortedShapes.map((shape) => renderShapeByType(shape, isSelected(shape.id)))}
           
+          {/* Render group outlines (dotted rectangles around groups) */}
+          {groups.map((group) => {
+            // Check if any shape in the group is selected
+            const hasSelectedShape = group.shapeIds.some(id => isSelected(id));
+            if (!hasSelectedShape) return null;
+            
+            return (
+              <Rect
+                key={`group-outline-${group.id}`}
+                x={group.x}
+                y={group.y}
+                width={group.width}
+                height={group.height}
+                stroke="rgb(99, 102, 241)" // Indigo color
+                strokeWidth={2 / stageScale}
+                dash={[8 / stageScale, 4 / stageScale]}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            );
+          })}
+          
           {/* Transformer for resize and rotate */}
           <Transformer
             ref={transformerRef}
@@ -1128,6 +1297,31 @@ const Canvas: React.FC = () => {
         selectedCount={selectedIds.length}
         onAlign={alignShapes}
         onDistribute={distributeShapes}
+        onGroup={() => {
+          if (selectedIds.length >= 2) {
+            groupShapes(selectedIds)
+              .then(() => toast.success(`Grouped ${selectedIds.length} shapes`))
+              .catch(err => {
+                console.error('Error grouping shapes:', err);
+                toast.error('Failed to group shapes');
+              });
+          }
+        }}
+        onUngroup={() => {
+          // Find groups of selected shapes
+          const selectedShapesWithGroups = shapes.filter(s => selectedIds.includes(s.id) && s.groupId);
+          const groupIds = [...new Set(selectedShapesWithGroups.map(s => s.groupId).filter(Boolean))];
+          
+          if (groupIds.length > 0) {
+            Promise.all(groupIds.map(groupId => ungroupShapes(groupId!)))
+              .then(() => toast.success(`Ungrouped ${groupIds.length} group(s)`))
+              .catch(err => {
+                console.error('Error ungrouping shapes:', err);
+                toast.error('Failed to ungroup shapes');
+              });
+          }
+        }}
+        hasGroupedShapes={shapes.some(s => selectedIds.includes(s.id) && s.groupId)}
       />
 
       {/* Canvas Controls */}

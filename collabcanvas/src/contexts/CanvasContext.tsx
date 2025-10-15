@@ -3,7 +3,15 @@ import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
 import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService } from '../services/canvas';
-import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData } from '../utils/types';
+import { 
+  createGroup as createGroupService, 
+  ungroupShapes as ungroupShapesService, 
+  deleteGroupRecursive, 
+  updateGroupStyle as updateGroupStyleService,
+  duplicateGroup as duplicateGroupService,
+  getGroupShapesRecursive
+} from '../services/grouping';
+import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
 import { doc, collection } from 'firebase/firestore';
@@ -29,6 +37,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Use the canvas hook for real-time synchronization
   const {
     shapes,
+    groups,
     loading,
     addShape: addShapeHook,
     updateShape: updateShapeHook,
@@ -447,6 +456,266 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   /**
+   * Group selected shapes together
+   * 
+   * @param shapeIds - Array of shape IDs to group
+   * @returns The ID of the created group
+   */
+  const groupShapes = async (shapeIds: string[]): Promise<string> => {
+    if (shapeIds.length < 2 || !currentUser) {
+      throw new Error('Need at least 2 shapes to create a group');
+    }
+
+    // Skip recording if we're in undo/redo
+    if (isPerformingHistoryAction.current) {
+      const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUser.uid, shapes);
+      return group.id;
+    }
+
+    // Record before states
+    const before: Record<string, Partial<Shape>> = {};
+    shapeIds.forEach(id => {
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        before[id] = { groupId: shape.groupId };
+      }
+    });
+
+    // Create the group
+    const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUser.uid, shapes);
+
+    // Wait for Firestore sync
+    setTimeout(() => {
+      const after: Record<string, Partial<Shape>> = {};
+      shapeIds.forEach(id => {
+        after[id] = { groupId: group.id };
+      });
+
+      history.recordAction({
+        type: 'update',
+        shapesAffected: shapeIds,
+        before,
+        after,
+        timestamp: Date.now(),
+        userId: currentUser.uid,
+      });
+    }, 200);
+
+    return group.id;
+  };
+
+  /**
+   * Ungroup shapes (remove group but keep shapes)
+   * 
+   * @param groupId - The group ID to ungroup
+   */
+  const ungroupShapes = async (groupId: string): Promise<void> => {
+    if (!currentUser) return;
+
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      throw new Error('Group not found');
+    }
+
+    // Skip recording if we're in undo/redo
+    if (isPerformingHistoryAction.current) {
+      await ungroupShapesService(GLOBAL_CANVAS_ID, groupId);
+      return;
+    }
+
+    // Record before states
+    const before: Record<string, Partial<Shape>> = {};
+    group.shapeIds.forEach(id => {
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        before[id] = { groupId: shape.groupId };
+      }
+    });
+
+    // Ungroup
+    await ungroupShapesService(GLOBAL_CANVAS_ID, groupId);
+
+    // Wait for Firestore sync
+    setTimeout(() => {
+      const after: Record<string, Partial<Shape>> = {};
+      group.shapeIds.forEach(id => {
+        after[id] = { groupId: undefined };
+      });
+
+      history.recordAction({
+        type: 'update',
+        shapesAffected: group.shapeIds,
+        before,
+        after,
+        timestamp: Date.now(),
+        userId: currentUser.uid,
+      });
+    }, 200);
+  };
+
+  /**
+   * Delete a group and all shapes within it (recursive)
+   * 
+   * @param groupId - The group ID to delete
+   */
+  const deleteGroup = async (groupId: string): Promise<void> => {
+    if (!currentUser) return;
+
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      throw new Error('Group not found');
+    }
+
+    // Get all shapes that will be deleted (recursive)
+    const shapeIds = getGroupShapesRecursive(groupId, shapes, groups);
+
+    // Skip recording if we're in undo/redo
+    if (isPerformingHistoryAction.current) {
+      await deleteGroupRecursive(GLOBAL_CANVAS_ID, groupId, shapes, groups);
+      // Clear selection if any deleted shapes were selected
+      setSelectedIds(selectedIds.filter(id => !shapeIds.includes(id)));
+      return;
+    }
+
+    // Record before states
+    const before: Record<string, Partial<Shape>> = {};
+    shapeIds.forEach(id => {
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        before[id] = { ...shape };
+      }
+    });
+
+    // Delete the group and all children
+    await deleteGroupRecursive(GLOBAL_CANVAS_ID, groupId, shapes, groups);
+
+    // Clear selection if any deleted shapes were selected
+    setSelectedIds(selectedIds.filter(id => !shapeIds.includes(id)));
+
+    // Record action
+    history.recordAction({
+      type: 'delete',
+      shapesAffected: shapeIds,
+      before,
+      after: {},
+      timestamp: Date.now(),
+      userId: currentUser.uid,
+    });
+  };
+
+  /**
+   * Update style for all shapes in a group
+   * 
+   * @param groupId - The group ID
+   * @param styleUpdates - Style updates to apply to all shapes in the group
+   */
+  const updateGroupStyle = async (
+    groupId: string,
+    styleUpdates: Partial<Pick<Shape, 'fill' | 'stroke' | 'strokeWidth' | 'opacity'>>
+  ): Promise<void> => {
+    if (!currentUser) return;
+
+    // Get all shape IDs in group (recursive)
+    const shapeIds = getGroupShapesRecursive(groupId, shapes, groups);
+
+    // Skip recording if we're in undo/redo
+    if (isPerformingHistoryAction.current) {
+      await updateGroupStyleService(GLOBAL_CANVAS_ID, groupId, styleUpdates, shapes, groups);
+      return;
+    }
+
+    // Record before states
+    const before: Record<string, Partial<Shape>> = {};
+    shapeIds.forEach(id => {
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        const beforeState: Partial<Shape> = {};
+        Object.keys(styleUpdates).forEach(key => {
+          const shapeKey = key as keyof typeof shape;
+          beforeState[shapeKey] = shape[shapeKey] as any;
+        });
+        before[id] = beforeState;
+      }
+    });
+
+    // Apply style updates
+    await updateGroupStyleService(GLOBAL_CANVAS_ID, groupId, styleUpdates, shapes, groups);
+
+    // Wait for Firestore sync
+    setTimeout(() => {
+      const after: Record<string, Partial<Shape>> = {};
+      shapeIds.forEach(id => {
+        after[id] = { ...styleUpdates };
+      });
+
+      history.recordAction({
+        type: 'update',
+        shapesAffected: shapeIds,
+        before,
+        after,
+        timestamp: Date.now(),
+        userId: currentUser.uid,
+      });
+    }, 200);
+  };
+
+  /**
+   * Duplicate a group and all its shapes
+   * 
+   * @param groupId - The group ID to duplicate
+   * @returns The ID of the new group
+   */
+  const duplicateGroup = async (groupId: string): Promise<string> => {
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    // Duplicate the group
+    const newGroupId = await duplicateGroupService(GLOBAL_CANVAS_ID, groupId, currentUser.uid, shapes, groups);
+
+    // Record action (skip if in undo/redo)
+    if (!isPerformingHistoryAction.current) {
+      // Wait for Firestore sync
+      setTimeout(() => {
+        const newGroup = groups.find(g => g.id === newGroupId);
+        if (newGroup) {
+          const newShapeIds = getGroupShapesRecursive(newGroupId, shapes, groups);
+          const after: Record<string, Partial<Shape>> = {};
+          
+          newShapeIds.forEach(id => {
+            const shape = shapes.find(s => s.id === id);
+            if (shape) {
+              after[id] = { ...shape };
+            }
+          });
+
+          history.recordAction({
+            type: 'create',
+            shapesAffected: newShapeIds,
+            before: {},
+            after,
+            timestamp: Date.now(),
+            userId: currentUser.uid,
+          });
+        }
+      }, 400);
+    }
+
+    return newGroupId;
+  };
+
+  /**
+   * Get all shapes in a group (recursive)
+   * 
+   * @param groupId - The group ID
+   * @returns Array of shapes in the group
+   */
+  const getGroupShapes = (groupId: string): Shape[] => {
+    const shapeIds = getGroupShapesRecursive(groupId, shapes, groups);
+    return shapes.filter(s => shapeIds.includes(s.id));
+  };
+
+  /**
    * Undo the last action
    * Restores the previous state of affected shapes
    */
@@ -526,6 +795,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const value: CanvasContextType = {
     shapes,
+    groups,
     selectedId,
     selectedIds,
     loading,
@@ -543,6 +813,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     sendBack,
     alignShapes,
     distributeShapes,
+    groupShapes,
+    ungroupShapes,
+    deleteGroup,
+    updateGroupStyle,
+    duplicateGroup,
+    getGroupShapes,
     undo,
     redo,
     canUndo: history.canUndo,

@@ -3,18 +3,19 @@ import { doc, collection } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import {
   subscribeToShapes,
+  subscribeToGroups,
   createShape as createShapeService,
   createShapeByType,
   updateShape as updateShapeService,
   deleteShape as deleteShapeService,
   checkAndReleaseStaleLocks,
 } from '../services/canvas';
-import type { Shape, ShapeCreateData, ShapeUpdateData, ShapeType } from '../utils/types';
+import type { Shape, ShapeGroup, ShapeCreateData, ShapeUpdateData, ShapeType } from '../utils/types';
 import { LOCK_CHECK_INTERVAL_MS, GLOBAL_CANVAS_ID } from '../utils/constants';
 import toast from 'react-hot-toast';
 
 /**
- * Hook for managing canvas shapes with real-time Firestore synchronization
+ * Hook for managing canvas shapes and groups with real-time Firestore synchronization
  * 
  * Note: Offline persistence is enabled in firebase.ts during initialization
  * 
@@ -23,6 +24,7 @@ import toast from 'react-hot-toast';
  */
 export const useCanvas = (userId: string) => {
   const [shapes, setShapes] = useState<Shape[]>([]);
+  const [groups, setGroups] = useState<ShapeGroup[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,13 +35,18 @@ export const useCanvas = (userId: string) => {
     setLoading(true);
     setError(null);
 
-    const unsubscribe = subscribeToShapes(canvasId, (updatedShapes) => {
+    const unsubscribeShapes = subscribeToShapes(canvasId, (updatedShapes) => {
       setShapes(updatedShapes);
       setLoading(false);
     });
 
+    const unsubscribeGroups = subscribeToGroups(canvasId, (updatedGroups) => {
+      setGroups(updatedGroups);
+    });
+
     return () => {
-      unsubscribe();
+      unsubscribeShapes();
+      unsubscribeGroups();
     };
   }, [canvasId]);
 
@@ -156,6 +163,7 @@ export const useCanvas = (userId: string) => {
 
   return {
     shapes,
+    groups,
     loading,
     error,
     addShape,

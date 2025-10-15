@@ -47,6 +47,32 @@ export const subscribeToShapes = (
 };
 
 /**
+ * Subscribe to real-time group updates from Firestore
+ * 
+ * @param canvasId - The canvas document ID
+ * @param callback - Function to call when groups change
+ * @returns Unsubscribe function
+ */
+export const subscribeToGroups = (
+  canvasId: string,
+  callback: (groups: import('../utils/types').ShapeGroup[]) => void
+): (() => void) => {
+  const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
+
+  return onSnapshot(canvasRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const data = snapshot.data() as CanvasDocument;
+      callback(data.groups || []);
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    console.error('Error subscribing to groups:', error);
+    callback([]);
+  });
+};
+
+/**
  * Initialize an empty canvas document
  * 
  * @param canvasId - The canvas document ID

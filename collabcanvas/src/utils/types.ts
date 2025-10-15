@@ -65,6 +65,25 @@ export interface Shape {
   
   // Line-specific properties
   points?: [number, number, number, number]; // [x1, y1, x2, y2]
+  
+  // Group membership
+  groupId?: string; // ID of the group this shape belongs to (if any)
+}
+
+// Shape Group (for managing grouped shapes)
+export interface ShapeGroup {
+  id: string;
+  canvasId: string;
+  name?: string; // Optional group name
+  shapeIds: string[]; // IDs of shapes in this group (can include other groups)
+  x: number; // Group bounding box position
+  y: number;
+  width: number; // Group bounding box size
+  height: number;
+  createdBy: string;
+  createdAt: Timestamp;
+  lastModifiedBy: string;
+  lastModifiedAt: Timestamp;
 }
 
 // Shape creation data (what we need to create a new shape)
@@ -108,6 +127,7 @@ export type ShapeUpdateData = Partial<Omit<Shape, 'id' | 'createdBy' | 'createdA
 export interface CanvasDocument {
   canvasId: string;
   shapes: Shape[];
+  groups?: ShapeGroup[]; // Groups collection
   lastUpdated: Timestamp;
 }
 
@@ -147,6 +167,7 @@ export interface AuthContextType {
 
 export interface CanvasContextType {
   shapes: Shape[];
+  groups: ShapeGroup[]; // All groups
   selectedId: string | null; // For backward compatibility
   selectedIds: string[]; // New: multi-select support
   loading: boolean;
@@ -164,6 +185,13 @@ export interface CanvasContextType {
   sendBack: (id: string) => Promise<void>;
   alignShapes: (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom') => Promise<void>;
   distributeShapes: (direction: 'horizontal' | 'vertical') => Promise<void>;
+  // Grouping operations
+  groupShapes: (shapeIds: string[]) => Promise<string>; // Returns group ID
+  ungroupShapes: (groupId: string) => Promise<void>;
+  deleteGroup: (groupId: string) => Promise<void>; // Deletes group and all children
+  updateGroupStyle: (groupId: string, styleUpdates: Partial<Pick<Shape, 'fill' | 'stroke' | 'strokeWidth' | 'opacity'>>) => Promise<void>;
+  duplicateGroup: (groupId: string) => Promise<string>; // Returns new group ID
+  getGroupShapes: (groupId: string) => Shape[]; // Get all shapes in a group (recursive)
   undo: () => void;
   redo: () => void;
   canUndo: boolean;

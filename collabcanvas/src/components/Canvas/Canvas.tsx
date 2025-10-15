@@ -24,7 +24,7 @@ import type { Shape as ShapeType } from '../../utils/types';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, deleteGroup, undo, redo, canUndo, canRedo } = useCanvasContext();
+  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
@@ -111,19 +111,6 @@ const Canvas: React.FC = () => {
       lastSelectedGroupRef.current = null;
     }
   }, [selectedIds]);
-
-  // Debug: Log groups whenever they change
-  useEffect(() => {
-    console.log('[Canvas] Groups updated:', groups.length, 'groups:', groups.map(g => ({
-      id: g.id,
-      shapeCount: g.shapeIds.length,
-      shapeIds: g.shapeIds
-    })));
-    console.log('[Canvas] Shapes with groupId:', shapes.filter(s => s.groupId).map(s => ({
-      shapeId: s.id,
-      groupId: s.groupId
-    })));
-  }, [groups, shapes]);
 
   // Keyboard listener for Space key (panning)
   useEffect(() => {
@@ -877,38 +864,29 @@ const Canvas: React.FC = () => {
       onSelect: (e?: any) => {
         const shiftKey = e?.evt?.shiftKey || false;
         
-        console.log('[Canvas] Shape clicked:', shape.id, 'groupId:', shape.groupId, 'groups available:', groups.length);
-        
         // Two-click selection for grouped shapes
         if (shape.groupId && !shiftKey) {
           const now = Date.now();
           const lastSelectedGroup = lastSelectedGroupRef.current;
           
-          console.log('[Canvas] Last selected group:', lastSelectedGroup, 'current time:', now);
-          
           // Check if we just selected this group (any shape in it) within 500ms
           if (lastSelectedGroup && lastSelectedGroup.groupId === shape.groupId && (now - lastSelectedGroup.timestamp) < 500) {
             // Second click on the group: select just this individual shape
-            console.log('[Canvas] Second click on group detected - selecting individual shape:', shape.id);
             selectShape(shape.id, { shift: false });
             lastSelectedGroupRef.current = null; // Reset
           } else {
             // First click on the group: select the entire group
-            console.log('[Canvas] First click on group - looking for group:', shape.groupId);
             const group = groups.find(g => g.id === shape.groupId);
             if (group) {
-              console.log('[Canvas] ✓ Selecting group:', group.id, 'with', group.shapeIds.length, 'shapes');
               selectMultipleShapes(group.shapeIds);
               lastSelectedGroupRef.current = { groupId: shape.groupId, timestamp: now };
             } else {
               // Group not found, select just the shape
-              console.warn('[Canvas] ✗ Group not found for shape:', shape.id, 'groupId:', shape.groupId, 'available groups:', groups.map(g => g.id));
               selectShape(shape.id, { shift: false });
             }
           }
         } else {
           // Not in a group or shift-click: normal selection
-          console.log('[Canvas] Not in group or shift-click - normal selection');
           selectShape(shape.id, { shift: shiftKey });
           lastSelectedGroupRef.current = null; // Reset
         }

@@ -23,9 +23,6 @@ const AlignmentTools: React.FC<AlignmentToolsProps> = ({
 }) => {
   if (selectedCount < 1) return null;
 
-  // Debug logging
-  console.log('[AlignmentTools] selectedCount:', selectedCount, 'hasGroupedShapes:', hasGroupedShapes);
-
   return (
     <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-3 flex flex-col gap-2 z-50">
       <div className="text-xs text-gray-500 font-medium mb-1">

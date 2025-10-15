@@ -28,8 +28,8 @@ const Canvas: React.FC = () => {
   const { currentUser } = useAuth();
   const toast = useToast();
   
-  // Track last clicked shape for two-click selection
-  const lastClickedShapeRef = useRef<{ id: string; timestamp: number } | null>(null);
+  // Track last selected group for two-click selection
+  const lastSelectedGroupRef = useRef<{ groupId: string; timestamp: number } | null>(null);
   
   // Box select state
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -104,6 +104,27 @@ const Canvas: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Reset two-click selection when selection changes or is cleared
+  useEffect(() => {
+    // If selection is cleared or changes, reset the click tracking
+    if (selectedIds.length === 0) {
+      lastSelectedGroupRef.current = null;
+    }
+  }, [selectedIds]);
+
+  // Debug: Log groups whenever they change
+  useEffect(() => {
+    console.log('[Canvas] Groups updated:', groups.length, 'groups:', groups.map(g => ({
+      id: g.id,
+      shapeCount: g.shapeIds.length,
+      shapeIds: g.shapeIds
+    })));
+    console.log('[Canvas] Shapes with groupId:', shapes.filter(s => s.groupId).map(s => ({
+      shapeId: s.id,
+      groupId: s.groupId
+    })));
+  }, [groups, shapes]);
+
   // Keyboard listener for Space key (panning)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -148,6 +169,7 @@ const Canvas: React.FC = () => {
       if (e.key === 'Escape') {
         if (selectedIds.length > 0) {
           selectShape(null);
+          lastSelectedGroupRef.current = null; // Reset two-click selection
         }
         return;
       }
@@ -526,6 +548,7 @@ const Canvas: React.FC = () => {
     if (clickedOnEmpty) {
       // Deselect all shapes
       selectShape(null);
+      lastSelectedGroupRef.current = null; // Reset two-click selection
     }
   };
   
@@ -854,31 +877,40 @@ const Canvas: React.FC = () => {
       onSelect: (e?: any) => {
         const shiftKey = e?.evt?.shiftKey || false;
         
+        console.log('[Canvas] Shape clicked:', shape.id, 'groupId:', shape.groupId, 'groups available:', groups.length);
+        
         // Two-click selection for grouped shapes
         if (shape.groupId && !shiftKey) {
           const now = Date.now();
-          const lastClick = lastClickedShapeRef.current;
+          const lastSelectedGroup = lastSelectedGroupRef.current;
           
-          // Check if this is a second click on the same shape within 500ms
-          if (lastClick && lastClick.id === shape.id && (now - lastClick.timestamp) < 500) {
-            // Second click: select just this shape
+          console.log('[Canvas] Last selected group:', lastSelectedGroup, 'current time:', now);
+          
+          // Check if we just selected this group (any shape in it) within 500ms
+          if (lastSelectedGroup && lastSelectedGroup.groupId === shape.groupId && (now - lastSelectedGroup.timestamp) < 500) {
+            // Second click on the group: select just this individual shape
+            console.log('[Canvas] Second click on group detected - selecting individual shape:', shape.id);
             selectShape(shape.id, { shift: false });
-            lastClickedShapeRef.current = null; // Reset
+            lastSelectedGroupRef.current = null; // Reset
           } else {
-            // First click: select the entire group
+            // First click on the group: select the entire group
+            console.log('[Canvas] First click on group - looking for group:', shape.groupId);
             const group = groups.find(g => g.id === shape.groupId);
             if (group) {
+              console.log('[Canvas] ✓ Selecting group:', group.id, 'with', group.shapeIds.length, 'shapes');
               selectMultipleShapes(group.shapeIds);
-              lastClickedShapeRef.current = { id: shape.id, timestamp: now };
+              lastSelectedGroupRef.current = { groupId: shape.groupId, timestamp: now };
             } else {
               // Group not found, select just the shape
+              console.warn('[Canvas] ✗ Group not found for shape:', shape.id, 'groupId:', shape.groupId, 'available groups:', groups.map(g => g.id));
               selectShape(shape.id, { shift: false });
             }
           }
         } else {
           // Not in a group or shift-click: normal selection
+          console.log('[Canvas] Not in group or shift-click - normal selection');
           selectShape(shape.id, { shift: shiftKey });
-          lastClickedShapeRef.current = null; // Reset
+          lastSelectedGroupRef.current = null; // Reset
         }
       },
       onDragStart: () => handleShapeDragStart(shape.id),

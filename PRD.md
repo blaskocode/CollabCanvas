@@ -30,7 +30,8 @@
 
 - As a designer, I want to **create an account and log in** so that my work is associated with my identity
 - As a designer, I want to **see a large canvas workspace** so that I have room to design
-- As a designer, I want to **pan and zoom the canvas smoothly** so that I can navigate my design space
+- As a designer, I want to **pan the canvas with Space+drag** so that I can navigate intuitively
+- As a designer, I want to **select multiple shapes with box selection** so that I can manipulate them together
 - As a designer, I want to **create basic shapes (rectangles)** so that I can build simple designs
 - As a designer, I want to **move objects around the canvas** so that I can arrange my design
 - As a designer, I want to **delete objects I've created** so that I can remove mistakes or unwanted elements
@@ -77,7 +78,10 @@
 **Must Have:**
 
 - Large canvas area (5000x5000px virtual space)
-- Smooth pan functionality (click-and-drag)
+- Smooth pan functionality:
+  - **Space + drag** for panning
+  - Visual cursor feedback (grab/grabbing cursor)
+- **Box selection** with single-click drag on empty canvas
 - Zoom functionality (mousewheel or pinch)
 - Visual grid or reference points (optional but helpful)
 - Hard boundaries at canvas edges

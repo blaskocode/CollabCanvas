@@ -92,6 +92,8 @@ export const createGroup = async (
   allShapes: Shape[]
 ): Promise<ShapeGroup> => {
   try {
+    console.log('[grouping.ts] createGroup called with shapeIds:', shapeIds);
+    
     if (shapeIds.length < 2) {
       throw new Error('Need at least 2 shapes to create a group');
     }
@@ -104,6 +106,8 @@ export const createGroup = async (
     }
 
     const currentData = canvasSnap.data() as CanvasDocument;
+    console.log('[grouping.ts] Current shapes in Firestore:', currentData.shapes.length);
+    console.log('[grouping.ts] Shape IDs in Firestore:', currentData.shapes.map(s => s.id));
     
     // Get the shapes being grouped
     const shapesToGroup = allShapes.filter(s => shapeIds.includes(s.id));
@@ -138,14 +142,21 @@ export const createGroup = async (
         : shape
     );
 
+    console.log('[grouping.ts] Shapes being updated with groupId:', updatedShapes.filter(s => s.groupId === groupId).length);
+    console.log('[grouping.ts] Updated shape IDs:', updatedShapes.filter(s => s.groupId === groupId).map(s => s.id));
+
     // Add group to groups array
     const updatedGroups = [...(currentData.groups || []), newGroup];
+
+    console.log('[grouping.ts] Writing to Firestore - group:', groupId, 'shapes with groupId:', updatedShapes.filter(s => s.groupId === groupId).length);
 
     await updateDoc(canvasRef, {
       shapes: updatedShapes,
       groups: updatedGroups,
       lastUpdated: serverTimestamp(),
     });
+
+    console.log('[grouping.ts] ✓ Group created successfully');
 
     return newGroup;
   } catch (error) {

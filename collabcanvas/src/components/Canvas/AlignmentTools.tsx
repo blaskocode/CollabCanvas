@@ -23,6 +23,9 @@ const AlignmentTools: React.FC<AlignmentToolsProps> = ({
 }) => {
   if (selectedCount < 1) return null;
 
+  // Debug logging
+  console.log('[AlignmentTools] selectedCount:', selectedCount, 'hasGroupedShapes:', hasGroupedShapes);
+
   return (
     <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-3 flex flex-col gap-2 z-50">
       <div className="text-xs text-gray-500 font-medium mb-1">
@@ -100,26 +103,28 @@ const AlignmentTools: React.FC<AlignmentToolsProps> = ({
       )}
       
       {/* Grouping */}
-      <div className="border-t pt-2 mt-1 flex gap-1">
-        {selectedCount >= 2 && onGroup && (
-          <button
-            onClick={onGroup}
-            className="flex-1 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded text-xs font-medium transition-colors"
-            title="Group Shapes (Ctrl+G)"
-          >
-            ⊞ Group
-          </button>
-        )}
-        {hasGroupedShapes && onUngroup && (
-          <button
-            onClick={onUngroup}
-            className="flex-1 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded text-xs font-medium transition-colors"
-            title="Ungroup Shapes (Ctrl+Shift+G)"
-          >
-            ⊟ Ungroup
-          </button>
-        )}
-      </div>
+      {((selectedCount >= 2 && onGroup) || (hasGroupedShapes && onUngroup)) && (
+        <div className="border-t pt-2 mt-1 flex gap-1">
+          {selectedCount >= 2 && onGroup && (
+            <button
+              onClick={onGroup}
+              className="flex-1 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded text-xs font-medium transition-colors"
+              title="Group Shapes (Ctrl+G)"
+            >
+              ⊞ Group
+            </button>
+          )}
+          {hasGroupedShapes && onUngroup && (
+            <button
+              onClick={onUngroup}
+              className="flex-1 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded text-xs font-medium transition-colors"
+              title="Ungroup Shapes (Ctrl+Shift+G)"
+            >
+              ⊟ Ungroup
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

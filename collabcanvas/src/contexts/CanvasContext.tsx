@@ -210,6 +210,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * @param ids - Array of shape IDs to select
    */
   const selectMultipleShapes = (ids: string[]): void => {
+    console.log('[CanvasContext] selectMultipleShapes called with', ids.length, 'shape IDs:', ids);
     setSelectedIds(ids);
   };
 

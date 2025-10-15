@@ -1,11 +1,13 @@
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { usePresence } from '../../hooks/usePresence';
+import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import PresenceList from '../Collaboration/PresenceList';
 
 export const Navbar = () => {
   const { currentUser, logout } = useAuth();
   const toast = useToast();
+  const connectionStatus = useConnectionStatus();
   
   // Get online users for presence list
   const { onlineUsers } = usePresence(
@@ -13,6 +15,35 @@ export const Navbar = () => {
     currentUser?.displayName || currentUser?.email || null,
     !!currentUser
   );
+  
+  // Get connection status display info
+  const getConnectionInfo = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return {
+          color: 'bg-green-500',
+          text: 'Connected',
+          textColor: 'text-green-700',
+          tooltip: 'Connected to server'
+        };
+      case 'reconnecting':
+        return {
+          color: 'bg-yellow-500 animate-pulse',
+          text: 'Reconnecting',
+          textColor: 'text-yellow-700',
+          tooltip: 'Attempting to reconnect...'
+        };
+      case 'offline':
+        return {
+          color: 'bg-red-500',
+          text: 'Offline',
+          textColor: 'text-red-700',
+          tooltip: 'No connection. Changes will sync when online.'
+        };
+    }
+  };
+  
+  const connectionInfo = getConnectionInfo();
 
   const handleLogout = async () => {
     try {
@@ -63,6 +94,32 @@ export const Navbar = () => {
               onlineUsers={onlineUsers}
               currentUserId={currentUser?.uid || null}
             />
+
+            {/* Divider */}
+            <div 
+              className="h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent" 
+              role="separator"
+              aria-hidden="true"
+            ></div>
+
+            {/* Connection Status Badge */}
+            <div 
+              className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 hover:shadow-md transition-shadow duration-200 group relative"
+              role="status"
+              aria-label={`Connection status: ${connectionInfo.text}`}
+              title={connectionInfo.tooltip}
+            >
+              <div className={`w-2.5 h-2.5 rounded-full ${connectionInfo.color} shadow-sm`}></div>
+              <span className={`text-xs font-medium ${connectionInfo.textColor}`}>
+                {connectionInfo.text}
+              </span>
+              
+              {/* Tooltip on hover */}
+              <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50 shadow-lg">
+                {connectionInfo.tooltip}
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-900"></div>
+              </div>
+            </div>
 
             {/* Divider */}
             <div 

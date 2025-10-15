@@ -9,6 +9,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, DEFAULT_SHA
 import CanvasControls from './CanvasControls';
 import PropertyPanel from './PropertyPanel';
 import AlignmentTools from './AlignmentTools';
+import AIInput from './AIInput';
 import Shape from './Shape';
 import Rectangle from './shapes/Rectangle';
 import Circle from './shapes/Circle';
@@ -1347,6 +1348,9 @@ const Canvas: React.FC = () => {
         canUndo={canUndo}
         canRedo={canRedo}
       />
+
+      {/* AI Input */}
+      <AIInput />
     </div>
   );
 };

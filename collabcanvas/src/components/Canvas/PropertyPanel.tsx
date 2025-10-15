@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ColorPicker from '../UI/ColorPicker';
 import type { Shape } from '../../utils/types';
+import { getTimeAgo } from '../../utils/timeHelpers';
+import { usePresence } from '../../hooks/usePresence';
+import { useAuth } from '../../hooks/useAuth';
 
 interface PropertyPanelProps {
   shape: Shape | null;
@@ -15,6 +18,14 @@ interface PropertyPanelProps {
  * @param props - PropertyPanel properties
  */
 const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
+  // Get presence data for display names
+  const { currentUser } = useAuth();
+  const { onlineUsers } = usePresence(
+    currentUser?.uid || null,
+    currentUser?.displayName || currentUser?.email || null,
+    !!currentUser
+  );
+  
   // Local state for real-time preview
   const [fillColor, setFillColor] = useState(shape?.fill || '#cccccc');
   const [strokeColor, setStrokeColor] = useState(shape?.stroke || '#000000');
@@ -24,7 +35,23 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   const [cornerRadius, setCornerRadius] = useState(shape?.cornerRadius || 0);
 
   // Debounce timer refs
-  const debounceTimerRef = useRef<number | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Get display name for last editor
+  const getDisplayName = (userId: string): string => {
+    if (userId === currentUser?.uid) {
+      return 'You';
+    }
+    const user = onlineUsers.find(u => u.userId === userId);
+    if (user) {
+      return user.displayName;
+    }
+    // Fallback: try to get from currentUser if it matches
+    if (currentUser && currentUser.uid === userId) {
+      return currentUser.displayName || currentUser.email?.split('@')[0] || 'You';
+    }
+    return 'Unknown user';
+  };
 
   // Update local state when shape changes
   useEffect(() => {
@@ -127,6 +154,25 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
         <div className="text-xs font-medium opacity-90">Shape Properties</div>
         <div className="text-lg font-bold capitalize">{shape.type}</div>
       </div>
+
+      {/* Last Edited By Indicator */}
+      {shape.lastModifiedBy && shape.lastModifiedAt && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <div className="text-xs text-gray-600 mb-1">Last edited by:</div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-800">
+              {getDisplayName(shape.lastModifiedBy)}
+            </span>
+            <span className="text-xs text-gray-500">
+              {getTimeAgo(
+                typeof shape.lastModifiedAt === 'number' 
+                  ? shape.lastModifiedAt 
+                  : shape.lastModifiedAt.toMillis?.() || Date.now()
+              )}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Fill Color */}
       <div>

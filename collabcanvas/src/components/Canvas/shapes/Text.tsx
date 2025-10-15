@@ -25,7 +25,7 @@ interface TextProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
-  onSelect: () => void;
+  onSelect: (e?: any) => void;
   onDragStart?: () => void;
   onDragEnd: (x: number, y: number) => void;
   onTextChange?: (text: string) => void;
@@ -83,7 +83,7 @@ const Text: React.FC<TextProps> = ({
    */
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
-    onSelect();
+    onSelect(e);
   };
 
   /**

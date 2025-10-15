@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Stage, Layer, Transformer } from 'react-konva';
+import { Stage, Layer, Transformer, Rect } from 'react-konva';
 import type Konva from 'konva';
 import { useCanvasContext } from '../../contexts/CanvasContext';
 import { useAuth } from '../../hooks/useAuth';
@@ -8,6 +8,7 @@ import { useToast } from '../../hooks/useToast';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
 import PropertyPanel from './PropertyPanel';
+import AlignmentTools from './AlignmentTools';
 import Shape from './Shape';
 import Rectangle from './shapes/Rectangle';
 import Circle from './shapes/Circle';
@@ -23,9 +24,19 @@ import type { Shape as ShapeType } from '../../utils/types';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, selectedId, loading, stageRef, selectShape, addShape, updateShape, deleteShape } = useCanvasContext();
+  const { shapes, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, undo, redo, canUndo, canRedo } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
+  
+  // Box select state
+  const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+  const justCompletedBoxSelect = useRef(false);
+  
+  // Panning state
+  const [isPanning, setIsPanning] = useState(false);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number; stageX: number; stageY: number } | null>(null);
   
   // Multiplayer cursors
   const { cursors, updateCursor } = useCursors(
@@ -87,7 +98,38 @@ const Canvas: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Keyboard listener for delete and escape functionality
+  // Keyboard listener for Space key (panning)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isSpacePressed) {
+        const target = e.target as HTMLElement;
+        // Don't handle Space if typing
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+          return;
+        }
+        e.preventDefault();
+        setIsSpacePressed(true);
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsSpacePressed(false);
+        setIsPanning(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isSpacePressed]);
+
+  // Keyboard listener for delete, escape, and other shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't process keyboard shortcuts if user is typing in an input or textarea
@@ -98,8 +140,53 @@ const Canvas: React.FC = () => {
 
       // Escape key: deselect current selection
       if (e.key === 'Escape') {
-        if (selectedId) {
+        if (selectedIds.length > 0) {
           selectShape(null);
+        }
+        return;
+      }
+
+      // Ctrl+D: Duplicate selected shape(s)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        if (selectedId) {
+          duplicateShape(selectedId);
+        }
+        return;
+      }
+
+      // Ctrl+]: Bring forward
+      if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+        e.preventDefault();
+        if (selectedId) {
+          bringForward(selectedId);
+        }
+        return;
+      }
+
+      // Ctrl+[: Send back
+      if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+        e.preventDefault();
+        if (selectedId) {
+          sendBack(selectedId);
+        }
+        return;
+      }
+
+      // Ctrl+Z: Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (canUndo) {
+          undo();
+        }
+        return;
+      }
+
+      // Ctrl+Y or Ctrl+Shift+Z: Redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        if (canRedo) {
+          redo();
         }
         return;
       }
@@ -109,23 +196,24 @@ const Canvas: React.FC = () => {
         // Prevent default browser behavior (e.g., going back in history)
         e.preventDefault();
 
-        // Check if a shape is selected
-        if (selectedId) {
-          const selectedShape = shapes.find((shape) => shape.id === selectedId);
-          
-          if (selectedShape) {
-            // Check if shape is locked by another user (not current user)
-            const isLockedByOtherUser = selectedShape.isLocked && 
-                                        selectedShape.lockedBy && 
-                                        selectedShape.lockedBy !== currentUser?.uid;
+        // Delete all selected shapes
+        if (selectedIds.length > 0) {
+          for (const shapeId of selectedIds) {
+            const selectedShape = shapes.find((shape) => shape.id === shapeId);
             
-            if (isLockedByOtherUser) {
-              toast.error('Cannot delete: This shape is locked by another user');
-              return;
+            if (selectedShape) {
+              // Check if shape is locked by another user (not current user)
+              const isLockedByOtherUser = selectedShape.isLocked && 
+                                          selectedShape.lockedBy && 
+                                          selectedShape.lockedBy !== currentUser?.uid;
+              
+              if (!isLockedByOtherUser) {
+                // Delete the shape
+                deleteShape(shapeId);
+              } else {
+                toast.error(`Cannot delete: Some shapes are locked by other users`);
+              }
             }
-
-            // Delete the shape
-            deleteShape(selectedId);
           }
         }
       }
@@ -133,7 +221,7 @@ const Canvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, shapes, deleteShape, selectShape, toast, currentUser]);
+  }, [selectedId, selectedIds, shapes, deleteShape, selectShape, duplicateShape, bringForward, sendBack, undo, redo, canUndo, canRedo, toast, currentUser]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges
@@ -301,12 +389,136 @@ const Canvas: React.FC = () => {
   /**
    * Handle clicking on the stage background to deselect shapes
    */
+  /**
+   * Handle stage click - deselects shapes when clicking empty area
+   * Also handles box select start
+   */
   const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
+    // Don't deselect if we just completed a box selection
+    if (justCompletedBoxSelect.current) {
+      justCompletedBoxSelect.current = false;
+      return;
+    }
+    
     // Check if clicked on empty area (stage itself)
     const clickedOnEmpty = e.target === e.target.getStage();
     if (clickedOnEmpty) {
+      // Deselect all shapes
       selectShape(null);
     }
+  };
+  
+  /**
+   * Handle stage mouse down - start box select
+   */
+  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage) return;
+    
+    const clickedOnEmpty = e.target === stage;
+    if (!clickedOnEmpty) return;
+    
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    
+    // Start panning if Space is pressed
+    if (isSpacePressed) {
+      setIsPanning(true);
+      panStartRef.current = {
+        x: pos.x,
+        y: pos.y,
+        stageX: stage.x(),
+        stageY: stage.y(),
+      };
+      return;
+    }
+    
+    // Start box selection on single-click drag
+    if (e.evt.button === 0) {
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+      
+      setIsBoxSelecting(true);
+      setBoxSelect({ x1: canvasX, y1: canvasY, x2: canvasX, y2: canvasY });
+    }
+  };
+  
+  /**
+   * Handle stage mouse move - update box select
+   */
+  const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage) return;
+    
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    
+    // Handle panning
+    if (isPanning && panStartRef.current) {
+      const dx = pos.x - panStartRef.current.x;
+      const dy = pos.y - panStartRef.current.y;
+      
+      const newX = panStartRef.current.stageX + dx;
+      const newY = panStartRef.current.stageY + dy;
+      
+      stage.position({ x: newX, y: newY });
+      setStagePos({ x: newX, y: newY });
+      return;
+    }
+    
+    // Handle box selection
+    if (isBoxSelecting && boxSelect) {
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+      setBoxSelect({ ...boxSelect, x2: canvasX, y2: canvasY });
+    }
+  };
+  
+  /**
+   * Handle stage mouse up - complete box select
+   */
+  const handleStageMouseUp = () => {
+    // End panning
+    if (isPanning) {
+      setIsPanning(false);
+      panStartRef.current = null;
+      return;
+    }
+    
+    // Handle box selection completion
+    if (!isBoxSelecting || !boxSelect) return;
+    
+    setIsBoxSelecting(false);
+    
+    // Calculate selection box bounds
+    const box = {
+      x1: Math.min(boxSelect.x1, boxSelect.x2),
+      y1: Math.min(boxSelect.y1, boxSelect.y2),
+      x2: Math.max(boxSelect.x1, boxSelect.x2),
+      y2: Math.max(boxSelect.y1, boxSelect.y2),
+    };
+    
+    // Find all shapes within the selection box
+    const selectedShapeIds = shapes
+      .filter(shape => {
+        // Check if shape intersects with selection box
+        const shapeRight = shape.x + (shape.width || 0);
+        const shapeBottom = shape.y + (shape.height || 0);
+        
+        return shape.x <= box.x2 && 
+               shapeRight >= box.x1 && 
+               shape.y <= box.y2 && 
+               shapeBottom >= box.y1;
+      })
+      .map(shape => shape.id);
+    
+    // Select all shapes in the box at once
+    if (selectedShapeIds.length > 0) {
+      selectMultipleShapes(selectedShapeIds);
+      justCompletedBoxSelect.current = true;
+    }
+    
+    setBoxSelect(null);
   };
 
   /**
@@ -511,14 +723,17 @@ const Canvas: React.FC = () => {
   /**
    * Render shape based on type
    */
-  const renderShapeByType = (shape: ShapeType, isSelected: boolean) => {
+  const renderShapeByType = (shape: ShapeType, shapeIsSelected: boolean) => {
     const commonProps = {
       id: shape.id,
-      isSelected,
+      isSelected: shapeIsSelected,
       isLocked: shape.isLocked,
       lockedBy: shape.lockedBy,
       currentUserId: currentUser?.uid || null,
-      onSelect: () => selectShape(shape.id),
+      onSelect: (e?: any) => {
+        const shiftKey = e?.evt?.shiftKey || false;
+        selectShape(shape.id, { shift: shiftKey });
+      },
       onDragStart: () => handleShapeDragStart(shape.id),
       onDragEnd: (x: number, y: number) => handleShapeDragEnd(shape.id, x, y),
     };
@@ -802,27 +1017,38 @@ const Canvas: React.FC = () => {
     );
   }
 
+  // Sort shapes by zIndex (higher = on top)
+  const sortedShapes = [...shapes].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+
   return (
-    <div className="w-full h-full bg-gray-100 overflow-hidden relative">
+    <div 
+      className="w-full h-full bg-gray-100 overflow-hidden relative"
+      style={{ cursor: isSpacePressed ? 'grab' : isPanning ? 'grabbing' : 'default' }}
+    >
       <Stage
         ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
-        draggable={!isDraggingShape}
+        draggable={false}
         x={stagePos.x}
         y={stagePos.y}
         scaleX={stageScale}
         scaleY={stageScale}
         onClick={handleStageClick}
         onTap={handleStageClick}
+        onMouseDown={handleStageMouseDown}
+        onMouseMove={(e) => {
+          handleMouseMove(e);
+          handleStageMouseMove(e);
+        }}
+        onMouseUp={handleStageMouseUp}
         onDragEnd={handleStageDragEnd}
         onWheel={handleWheel}
-        onMouseMove={handleMouseMove}
       >
         <Layer>
           {/* Background grid or color can be added here */}
-          {/* Render all shapes */}
-          {shapes.map((shape) => renderShapeByType(shape, shape.id === selectedId))}
+          {/* Render all shapes sorted by zIndex */}
+          {sortedShapes.map((shape) => renderShapeByType(shape, isSelected(shape.id)))}
           
           {/* Transformer for resize and rotate */}
           <Transformer
@@ -852,6 +1078,21 @@ const Canvas: React.FC = () => {
               return newBox;
             }}
           />
+          
+          {/* Box select visualization */}
+          {boxSelect && (
+            <Rect
+              x={Math.min(boxSelect.x1, boxSelect.x2)}
+              y={Math.min(boxSelect.y1, boxSelect.y2)}
+              width={Math.abs(boxSelect.x2 - boxSelect.x1)}
+              height={Math.abs(boxSelect.y2 - boxSelect.y1)}
+              fill="rgba(59, 130, 246, 0.1)"
+              stroke="rgb(59, 130, 246)"
+              strokeWidth={2 / stageScale}
+              dash={[10 / stageScale, 5 / stageScale]}
+              listening={false}
+            />
+          )}
         </Layer>
       </Stage>
 
@@ -882,6 +1123,13 @@ const Canvas: React.FC = () => {
         onUpdate={handlePropertyUpdate}
       />
 
+      {/* Alignment Tools (shows when multiple shapes selected) */}
+      <AlignmentTools
+        selectedCount={selectedIds.length}
+        onAlign={alignShapes}
+        onDistribute={distributeShapes}
+      />
+
       {/* Canvas Controls */}
       <CanvasControls
         zoom={stageScale}
@@ -890,6 +1138,10 @@ const Canvas: React.FC = () => {
         onZoomOut={handleZoomOut}
         onResetView={handleResetView}
         onAddShape={handleAddShape}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
     </div>
   );

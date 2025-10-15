@@ -20,7 +20,7 @@ interface CircleProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
-  onSelect: () => void;
+  onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDragStart?: () => void;
   onDragEnd: (x: number, y: number) => void;
 }
@@ -58,7 +58,7 @@ const Circle: React.FC<CircleProps> = ({
    */
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true; // Prevent stage click
-    onSelect();
+    onSelect(e);
   };
 
   /**
@@ -66,7 +66,7 @@ const Circle: React.FC<CircleProps> = ({
    */
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true; // Prevent stage click
-    onSelect();
+    onSelect(e);
   };
 
   /**

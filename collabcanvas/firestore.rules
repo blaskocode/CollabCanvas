@@ -55,11 +55,17 @@ service cloud.firestore {
         && (!shape.keys().hasAny(['scaleY']) || shape.scaleY == null || (shape.scaleY is number && shape.scaleY > 0 && shape.scaleY <= 10));
     }
     
+    // Validate layer management properties
+    function hasValidLayerProps(shape) {
+      return (!shape.keys().hasAny(['zIndex']) || shape.zIndex == null || (shape.zIndex is number && shape.zIndex >= -1000 && shape.zIndex <= 1000));
+    }
+    
     // Validate shape-specific fields
     function isValidShape(shape) {
       return hasBaseShapeFields(shape)
         && hasValidStyling(shape)
         && hasValidTransform(shape)
+        && hasValidLayerProps(shape)
         && (
           // Rectangle: no additional required fields
           (shape.type == 'rectangle') ||

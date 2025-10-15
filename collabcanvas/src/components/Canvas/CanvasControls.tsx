@@ -9,6 +9,10 @@ interface CanvasControlsProps {
   onZoomOut: () => void;
   onResetView: () => void;
   onAddShape: (type: ShapeType) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 /**
@@ -23,6 +27,10 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
   onZoomOut,
   onResetView,
   onAddShape,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }) => {
   const canZoomIn = zoom < MAX_ZOOM;
   const canZoomOut = zoom > minZoom;
@@ -34,6 +42,37 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
       role="toolbar"
       aria-label="Canvas controls"
     >
+      {/* Undo/Redo Controls */}
+      {(onUndo || onRedo) && (
+        <div className="flex gap-2">
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="flex-1 px-3 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-1"
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo last action"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+            <span className="text-xs">Undo</span>
+          </button>
+          
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="flex-1 px-3 py-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl hover:from-cyan-600 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-1"
+            title="Redo (Ctrl+Y)"
+            aria-label="Redo last action"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+            </svg>
+            <span className="text-xs">Redo</span>
+          </button>
+        </div>
+      )}
+      
       {/* Zoom Level Display */}
       <div 
         className="text-center bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl py-3 px-4 shadow-md"

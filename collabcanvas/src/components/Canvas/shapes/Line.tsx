@@ -16,7 +16,7 @@ interface LineProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
-  onSelect: () => void;
+  onSelect: (e?: any) => void;
   onDragStart?: () => void;
   onDragEnd: (x: number, y: number) => void;
   onPointsChange?: (points: [number, number, number, number]) => void;
@@ -53,7 +53,7 @@ const Line: React.FC<LineProps> = ({
    */
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
-    onSelect();
+    onSelect(e);
   };
 
   /**
@@ -61,7 +61,7 @@ const Line: React.FC<LineProps> = ({
    */
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true;
-    onSelect();
+    onSelect(e);
   };
 
   /**

@@ -40,6 +40,9 @@ export interface Shape {
   lockedBy: string | null;
   lockedAt: Timestamp | null;
   
+  // Layer management
+  zIndex?: number; // Layer order (higher = on top)
+  
   // Styling properties
   stroke?: string; // Border color (hex)
   strokeWidth?: number; // Border width (1-10px)
@@ -144,15 +147,27 @@ export interface AuthContextType {
 
 export interface CanvasContextType {
   shapes: Shape[];
-  selectedId: string | null;
+  selectedId: string | null; // For backward compatibility
+  selectedIds: string[]; // New: multi-select support
   loading: boolean;
   stageRef: React.RefObject<any> | null;
   addShape: (type: ShapeType, position: { x: number; y: number }) => Promise<void>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;
-  selectShape: (id: string | null) => void;
+  selectShape: (id: string | null, options?: { shift?: boolean }) => void;
+  selectMultipleShapes: (ids: string[]) => void;
+  isSelected: (id: string) => boolean;
   lockShape: (id: string) => Promise<void>;
   unlockShape: (id: string) => Promise<void>;
+  duplicateShape: (id: string) => Promise<void>;
+  bringForward: (id: string) => Promise<void>;
+  sendBack: (id: string) => Promise<void>;
+  alignShapes: (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom') => Promise<void>;
+  distributeShapes: (direction: 'horizontal' | 'vertical') => Promise<void>;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 // ============================================================================

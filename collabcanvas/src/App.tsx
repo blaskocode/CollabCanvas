@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { CanvasProvider } from './contexts/CanvasContext';
+import { HistoryProvider } from './contexts/HistoryContext';
 import { useAuth } from './hooks/useAuth';
 import { ToastContainer } from './components/UI/Toast';
 import Login from './components/Auth/Login';
@@ -117,9 +118,11 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <CanvasProvider>
-                  <CanvasPage />
-                </CanvasProvider>
+                <HistoryProvider>
+                  <CanvasProvider>
+                    <CanvasPage />
+                  </CanvasProvider>
+                </HistoryProvider>
               </ProtectedRoute>
             }
           />

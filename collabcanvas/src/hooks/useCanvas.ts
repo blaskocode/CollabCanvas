@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { doc, collection } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import {
   subscribeToShapes,
@@ -10,45 +10,95 @@ import {
   deleteShape as deleteShapeService,
   checkAndReleaseStaleLocks,
 } from '../services/canvas';
-import type { Shape, ShapeGroup, ShapeCreateData, ShapeUpdateData, ShapeType } from '../utils/types';
+import type { Shape, ShapeGroup, ShapeCreateData, ShapeUpdateData, ShapeType, Connection } from '../utils/types';
 import { LOCK_CHECK_INTERVAL_MS, GLOBAL_CANVAS_ID } from '../utils/constants';
 import toast from 'react-hot-toast';
 
 /**
- * Hook for managing canvas shapes and groups with real-time Firestore synchronization
+ * Subscribe to connections changes
+ */
+const subscribeToConnections = (
+  canvasId: string,
+  onUpdate: (connections: Connection[]) => void
+): (() => void) => {
+  const canvasRef = doc(db, 'canvases', canvasId);
+  
+  const unsubscribe = onSnapshot(
+    canvasRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        onUpdate(data.connections || []);
+      } else {
+        onUpdate([]);
+      }
+    },
+    (error) => {
+      console.error('Error subscribing to connections:', error);
+      // Don't clear connections on error - keep cached/existing data
+      // This prevents connections from disappearing during auth token propagation
+    }
+  );
+  
+  return unsubscribe;
+};
+
+/**
+ * Hook for managing canvas shapes, groups, and connections with real-time Firestore synchronization
  * 
  * Note: Offline persistence is enabled in firebase.ts during initialization
  * 
  * @param userId - Current user ID
+ * @param isAuthReady - Whether Firebase Auth has fully initialized (not loading)
  * @returns Canvas state and operations
  */
-export const useCanvas = (userId: string) => {
+export const useCanvas = (userId: string, isAuthReady: boolean = true) => {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [groups, setGroups] = useState<ShapeGroup[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const canvasId = GLOBAL_CANVAS_ID;
+  
+  // Store unsubscribe functions in a ref so cleanup can access them
+  const unsubscribersRef = useRef<{
+    shapes?: () => void;
+    groups?: () => void;
+    connections?: () => void;
+  }>({});
 
-  // Subscribe to real-time shape updates
+  // Subscribe to real-time shape, group, and connection updates
   useEffect(() => {
+    // Don't subscribe if auth is still loading or user is not authenticated
+    if (!isAuthReady || !userId || userId === 'anonymous') {
+      setLoading(!isAuthReady);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
-    const unsubscribeShapes = subscribeToShapes(canvasId, (updatedShapes) => {
+    unsubscribersRef.current.shapes = subscribeToShapes(canvasId, (updatedShapes) => {
       setShapes(updatedShapes);
       setLoading(false);
     });
 
-    const unsubscribeGroups = subscribeToGroups(canvasId, (updatedGroups) => {
+    unsubscribersRef.current.groups = subscribeToGroups(canvasId, (updatedGroups) => {
       setGroups(updatedGroups);
     });
 
+    unsubscribersRef.current.connections = subscribeToConnections(canvasId, (updatedConnections) => {
+      setConnections(updatedConnections);
+    });
+
     return () => {
-      unsubscribeShapes();
-      unsubscribeGroups();
+      unsubscribersRef.current.shapes?.();
+      unsubscribersRef.current.groups?.();
+      unsubscribersRef.current.connections?.();
+      unsubscribersRef.current = {};
     };
-  }, [canvasId]);
+  }, [canvasId, userId, isAuthReady]);
 
   // Periodically check and release stale locks
   useEffect(() => {
@@ -84,12 +134,13 @@ export const useCanvas = (userId: string) => {
 
   /**
    * Add a new shape to the canvas
+   * @returns The ID of the created shape
    */
   const addShape = async (
     type: ShapeType,
     position: { x: number; y: number },
     customProperties?: Partial<ShapeCreateData>
-  ): Promise<void> => {
+  ): Promise<string> => {
     try {
       // Generate unique ID using Firebase
       const shapeId = doc(collection(db, 'canvas')).id;
@@ -103,6 +154,7 @@ export const useCanvas = (userId: string) => {
 
       await createShapeService(canvasId, shapeData);
       // Shape will be added to local state via onSnapshot
+      return shapeId;
     } catch (err) {
       console.error('Error adding shape:', err);
       setError('Failed to add shape');
@@ -115,9 +167,7 @@ export const useCanvas = (userId: string) => {
    * Update an existing shape
    */
   const updateShape = async (id: string, updates: ShapeUpdateData): Promise<void> => {
-    console.log('[useCanvas] updateShape called:', { id, updates });
     try {
-      // Optimistic update
       setShapes((prevShapes) =>
         prevShapes.map((shape) =>
           shape.id === id
@@ -130,18 +180,14 @@ export const useCanvas = (userId: string) => {
         )
       );
 
-      // Update in Firestore
       await updateShapeService(canvasId, id, {
         ...updates,
         lastModifiedBy: userId,
       });
-      console.log('[useCanvas] Shape updated in Firestore successfully');
-      // Firestore will sync back via onSnapshot
     } catch (err) {
       console.error('Error updating shape:', err);
       setError('Failed to update shape');
       toast.error('Failed to update shape. Changes will sync when connection is restored.');
-      // Revert optimistic update on error - Firestore snapshot will restore correct state
       throw err;
     }
   };
@@ -169,6 +215,7 @@ export const useCanvas = (userId: string) => {
   return {
     shapes,
     groups,
+    connections,
     loading,
     error,
     addShape,

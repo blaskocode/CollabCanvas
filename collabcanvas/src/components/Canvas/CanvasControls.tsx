@@ -17,6 +17,8 @@ interface CanvasControlsProps {
   onClearAll?: () => void;
   isDrawingMode?: boolean;
   drawingShapeType?: ShapeType | null;
+  isPlacementMode?: boolean;
+  placementShapeType?: ShapeType | null;
 }
 
 /**
@@ -39,13 +41,15 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
   onClearAll,
   isDrawingMode = false,
   drawingShapeType = null,
+  isPlacementMode = false,
+  placementShapeType = null,
 }) => {
   const canZoomIn = zoom < MAX_ZOOM;
   const canZoomOut = zoom > minZoom;
 
   return (
     <div 
-      className="fixed top-20 right-4 glass-strong rounded-2xl shadow-2xl p-5 space-y-3 z-10 min-w-[180px] transform hover:scale-105 transition-all duration-300"
+      className="fixed top-20 right-4 glass-strong rounded-2xl shadow-2xl p-5 space-y-3 z-10 min-w-[180px] max-h-[calc(100vh-100px)] overflow-y-auto transform hover:scale-105 transition-all duration-300"
       role="toolbar"
       aria-label="Canvas controls"
     >
@@ -221,6 +225,82 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
               <line x1="4" y1="18" x2="20" y2="6" strokeWidth={2} strokeLinecap="round" />
             </svg>
             <span className="text-xs">Line</span>
+          </button>
+        </div>
+        
+        {/* Workflow Shapes Section */}
+        <div className="text-xs font-medium text-gray-600 text-center mt-4 mb-2">
+          Workflow Shapes
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onAddShape('process')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'process'
+                ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300'
+                : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+            }`}
+            title="Process Box - Workflow step"
+            aria-label="Draw process box shape"
+          >
+            <div className="text-2xl">📦</div>
+            <span className="text-xs">Process</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('decision')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'decision'
+                ? 'border-yellow-500 bg-yellow-50 ring-2 ring-yellow-300'
+                : 'border-gray-300 hover:border-yellow-400 hover:bg-yellow-50'
+            }`}
+            title="Decision Diamond - Yes/No branching"
+            aria-label="Draw decision diamond shape"
+          >
+            <div className="text-2xl">♦️</div>
+            <span className="text-xs">Decision</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('startEnd')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'startEnd'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Start/End Oval"
+            aria-label="Draw start/end oval shape"
+          >
+            <div className="text-2xl">⭕</div>
+            <span className="text-xs">Start/End</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('document')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'document'
+                ? 'border-gray-500 bg-gray-50 ring-2 ring-gray-300'
+                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+            }`}
+            title="Document"
+            aria-label="Draw document shape"
+          >
+            <div className="text-2xl">📄</div>
+            <span className="text-xs">Document</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('database')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 col-span-2 ${
+              isPlacementMode && placementShapeType === 'database'
+                ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300'
+                : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'
+            }`}
+            title="Database"
+            aria-label="Draw database shape"
+          >
+            <div className="text-2xl">🗄️</div>
+            <span className="text-xs">Database</span>
           </button>
         </div>
       </div>

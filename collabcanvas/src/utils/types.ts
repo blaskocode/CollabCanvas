@@ -22,7 +22,13 @@ export const toUser = (firebaseUser: FirebaseUser): User => ({
 // Shape Types
 // ============================================================================
 
-export type ShapeType = 'rectangle' | 'circle' | 'text' | 'line';
+export type ShapeType = 'rectangle' | 'circle' | 'text' | 'line' | 'process' | 'decision' | 'startEnd' | 'document' | 'database';
+
+// Anchor point positions for connectors
+export type AnchorPosition = 'top' | 'right' | 'bottom' | 'left';
+
+// Arrow types for connectors
+export type ArrowType = 'none' | 'end' | 'both';
 
 export interface Shape {
   id: string;
@@ -132,6 +138,43 @@ export interface ShapeCreateData {
 export type ShapeUpdateData = Partial<Omit<Shape, 'id' | 'createdBy' | 'createdAt'>>;
 
 // ============================================================================
+// Connection Types (for workflow connectors)
+// ============================================================================
+
+export interface Connection {
+  id: string;
+  fromShapeId: string;
+  fromAnchor: AnchorPosition;
+  toShapeId: string;
+  toAnchor: AnchorPosition;
+  arrowType: ArrowType;
+  stroke?: string;
+  strokeWidth?: number;
+  label?: string; // For "Yes/No" labels on decision branches
+  createdBy: string;
+  createdAt: Timestamp;
+  lastModifiedBy?: string;
+  lastModifiedAt?: Timestamp;
+}
+
+// Connection creation data
+export interface ConnectionCreateData {
+  id?: string; // Optional ID (will be generated if not provided)
+  fromShapeId: string;
+  fromAnchor: AnchorPosition;
+  toShapeId: string;
+  toAnchor: AnchorPosition;
+  arrowType?: ArrowType;
+  stroke?: string;
+  strokeWidth?: number;
+  label?: string;
+  createdBy: string;
+}
+
+// Connection update data (partial updates)
+export type ConnectionUpdateData = Partial<Omit<Connection, 'id' | 'createdBy' | 'createdAt'>>;
+
+// ============================================================================
 // Canvas Document Structure
 // ============================================================================
 
@@ -139,6 +182,7 @@ export interface CanvasDocument {
   canvasId: string;
   shapes: Shape[];
   groups?: ShapeGroup[]; // Groups collection
+  connections?: Connection[]; // Connections collection
   lastUpdated: Timestamp;
 }
 
@@ -179,13 +223,16 @@ export interface AuthContextType {
 export interface CanvasContextType {
   shapes: Shape[];
   groups: ShapeGroup[]; // All groups
+  connections: Connection[]; // All connections
   selectedId: string | null; // For backward compatibility
   selectedIds: string[]; // New: multi-select support
+  selectedConnectionId: string | null; // Selected connection
   loading: boolean;
   stageRef: React.RefObject<any> | null;
-  addShape: (type: ShapeType, position: { x: number; y: number }, customProperties?: Partial<ShapeCreateData>) => Promise<void>;
+  addShape: (type: ShapeType, position: { x: number; y: number }, customProperties?: Partial<ShapeCreateData>) => Promise<string>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;
+  deleteMultipleShapes: (ids: string[]) => Promise<void>;
   selectShape: (id: string | null, options?: { shift?: boolean }) => void;
   selectMultipleShapes: (ids: string[]) => void;
   isSelected: (id: string) => boolean;
@@ -204,6 +251,12 @@ export interface CanvasContextType {
   updateGroupBounds: (groupId: string) => Promise<void>; // Updates group bounding box
   duplicateGroup: (groupId: string) => Promise<string>; // Returns new group ID
   getGroupShapes: (groupId: string) => Shape[]; // Get all shapes in a group (recursive)
+  // Connection operations
+  addConnection: (connectionData: ConnectionCreateData) => Promise<string>; // Returns connection ID
+  updateConnection: (id: string, updates: ConnectionUpdateData) => Promise<void>;
+  deleteConnection: (id: string) => Promise<void>;
+  selectConnection: (id: string | null) => void;
+  getShapeConnections: (shapeId: string) => Connection[]; // Get all connections for a shape
   undo: () => void;
   redo: () => void;
   canUndo: boolean;

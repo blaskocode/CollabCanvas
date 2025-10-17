@@ -2,106 +2,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
+    // Helper function for authentication
     function isAuthenticated() {
       return request.auth != null;
     }
     
-    function isValidTimestamp(ts) {
-      return ts is timestamp;
-    }
-    
-    // Validate shape type
-    function isValidShapeType(type) {
-      return type in ['rectangle', 'circle', 'text', 'line'];
-    }
-    
-    // Validate base shape structure
-    function hasBaseShapeFields(shape) {
-      return shape.keys().hasAll(['id', 'type', 'x', 'y', 'width', 'height', 'fill', 'createdBy', 'createdAt', 'lastModifiedBy', 'lastModifiedAt', 'isLocked', 'lockedBy', 'lockedAt'])
-        && shape.id is string
-        && isValidShapeType(shape.type)
-        && shape.x is number
-        && shape.y is number
-        && shape.width is number
-        && shape.height is number
-        && isValidHexColor(shape.fill)
-        && shape.createdBy is string
-        && isValidTimestamp(shape.createdAt)
-        && shape.lastModifiedBy is string
-        && isValidTimestamp(shape.lastModifiedAt)
-        && shape.isLocked is bool
-        && (shape.lockedBy == null || shape.lockedBy is string)
-        && (shape.lockedAt == null || isValidTimestamp(shape.lockedAt));
-    }
-    
-    // Validate hex color format
-    function isValidHexColor(color) {
-      return color is string && color.matches('^#[0-9A-Fa-f]{6}$');
-    }
-    
-    // Validate styling properties
-    function hasValidStyling(shape) {
-      return (!shape.keys().hasAny(['stroke']) || shape.stroke == null || isValidHexColor(shape.stroke))
-        && (!shape.keys().hasAny(['strokeWidth']) || shape.strokeWidth == null || (shape.strokeWidth is number && shape.strokeWidth >= 1 && shape.strokeWidth <= 10))
-        && (!shape.keys().hasAny(['opacity']) || shape.opacity == null || (shape.opacity is number && shape.opacity >= 0 && shape.opacity <= 100))
-        && (!shape.keys().hasAny(['cornerRadius']) || shape.cornerRadius == null || (shape.cornerRadius is number && shape.cornerRadius >= 0 && shape.cornerRadius <= 50));
-    }
-    
-    // Validate transform properties
-    function hasValidTransform(shape) {
-      return (!shape.keys().hasAny(['rotation']) || shape.rotation == null || (shape.rotation is number && shape.rotation >= 0 && shape.rotation <= 360))
-        && (!shape.keys().hasAny(['scaleX']) || shape.scaleX == null || (shape.scaleX is number && shape.scaleX > 0 && shape.scaleX <= 10))
-        && (!shape.keys().hasAny(['scaleY']) || shape.scaleY == null || (shape.scaleY is number && shape.scaleY > 0 && shape.scaleY <= 10));
-    }
-    
-    // Validate layer management properties
-    function hasValidLayerProps(shape) {
-      return (!shape.keys().hasAny(['zIndex']) || shape.zIndex == null || (shape.zIndex is number && shape.zIndex >= -1000 && shape.zIndex <= 1000));
-    }
-    
-    // Validate shape-specific fields
-    function isValidShape(shape) {
-      return hasBaseShapeFields(shape)
-        && hasValidStyling(shape)
-        && hasValidTransform(shape)
-        && hasValidLayerProps(shape)
-        && (
-          // Rectangle: no additional required fields
-          (shape.type == 'rectangle') ||
-          
-          // Circle: must have radius
-          (shape.type == 'circle' && shape.radius is number && shape.radius > 0) ||
-          
-          // Text: must have text and fontSize
-          (shape.type == 'text' 
-            && shape.text is string 
-            && shape.fontSize is number 
-            && shape.fontSize > 0
-            && (!shape.keys().hasAny(['fontFamily']) || shape.fontFamily is string)
-            && (!shape.keys().hasAny(['textAlign']) || shape.textAlign in ['left', 'center', 'right'])) ||
-          
-          // Line: must have points array with 4 numbers
-          (shape.type == 'line' 
-            && shape.points is list 
-            && shape.points.size() == 4)
-        );
-    }
-    
-    // Canvas collection rules
-    match /canvas/{canvasId} {
+    // Canvases collection - simplified permissive rules for authenticated users
+    match /canvases/{canvasId} {
       // Allow authenticated users to read any canvas
       allow read: if isAuthenticated();
       
-      // Allow authenticated users to write to canvas
-      // Validate canvas document structure and all shapes
-      allow write: if isAuthenticated() 
-        && request.resource.data.keys().hasAll(['canvasId', 'shapes', 'lastUpdated'])
-        && request.resource.data.canvasId is string
-        && request.resource.data.shapes is list
-        && isValidTimestamp(request.resource.data.lastUpdated)
-        && request.resource.data.shapes.size() >= 0
-        && request.resource.data.shapes.size() < 10000; // Limit to 10k shapes per canvas
+      // Allow authenticated users to write to canvas (create, update, delete)
+      allow write: if isAuthenticated();
     }
   }
 }

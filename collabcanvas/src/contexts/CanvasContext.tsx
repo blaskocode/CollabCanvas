@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useRef, useEffect } from 'r
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
-import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService, clearAllShapes as clearAllShapesService, restoreAllShapes as restoreAllShapesService } from '../services/canvas';
+import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService, clearAllShapes as clearAllShapesService, restoreAllShapes as restoreAllShapesService, deleteMultipleShapes as deleteMultipleShapesService } from '../services/canvas';
 import { 
   createGroup as createGroupService, 
   ungroupShapes as ungroupShapesService, 
@@ -12,7 +12,14 @@ import {
   getGroupShapesRecursive,
   updateGroupBounds as updateGroupBoundsService
 } from '../services/grouping';
-import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape } from '../utils/types';
+import {
+  addConnection as addConnectionService,
+  updateConnection as updateConnectionService,
+  deleteConnection as deleteConnectionService,
+  getShapeConnections as getShapeConnectionsService,
+  deleteShapeConnections
+} from '../services/connections';
+import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
 import { doc, collection } from 'firebase/firestore';
@@ -27,8 +34,9 @@ const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
  * @param children - Child components to be wrapped by the provider
  */
 export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const stageRef = useRef<Konva.Stage>(null);
   
   // History for undo/redo
@@ -36,14 +44,16 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isPerformingHistoryAction = useRef(false); // Track if we're in undo/redo to avoid recording
   
   // Use the canvas hook for real-time synchronization
+  // Wait for auth to be ready (not loading) before subscribing to Firestore
   const {
     shapes,
     groups,
+    connections,
     loading,
     addShape: addShapeHook,
     updateShape: updateShapeHook,
     deleteShape: deleteShapeHook,
-  } = useCanvas(currentUser?.uid || 'anonymous');
+  } = useCanvas(currentUser?.uid || 'anonymous', !authLoading);
   
   // Backward compatibility: selectedId is the first selected shape (or null)
   const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
@@ -88,17 +98,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * @param type - Shape type
    * @param position - Position where the shape should be created
    * @param customProperties - Optional custom properties to override defaults
+   * @returns The ID of the created shape
    */
   const addShape = async (
     type: ShapeType,
     position: { x: number; y: number },
     customProperties?: Partial<ShapeCreateData>
-  ): Promise<void> => {
-    await addShapeHook(type, position, customProperties);
+  ): Promise<string> => {
+    const shapeId = await addShapeHook(type, position, customProperties);
     
     // Record action after shape is added (skip if in undo/redo)
     // Note: We can't easily capture the new shape here due to async Firestore updates
     // History recording for create actions will happen via the shapes listener
+    
+    return shapeId;
   };
 
   /**
@@ -176,10 +189,62 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     await deleteShapeHook(id);
     
+    // Also delete any connections involving this shape
+    try {
+      await deleteShapeConnections(GLOBAL_CANVAS_ID, id);
+    } catch (error) {
+      console.error('Error deleting shape connections:', error);
+      // Don't throw - shape deletion should still succeed even if connection cleanup fails
+    }
+    
     // Clear selection if deleted shape was selected
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter(sid => sid !== id));
     }
+  };
+
+  /**
+   * Delete multiple shapes in a single atomic operation
+   * Much faster than calling deleteShape multiple times
+   * 
+   * @param ids - Array of shape IDs to delete
+   */
+  const deleteMultipleShapes = async (ids: string[]): Promise<void> => {
+    if (!currentUser || ids.length === 0) return;
+    
+    // Record history for all shapes
+    const shapesToDelete = shapes.filter(s => ids.includes(s.id));
+    const before: Record<string, Shape> = {};
+    shapesToDelete.forEach(shape => {
+      before[shape.id] = { ...shape };
+    });
+    
+    if (shapesToDelete.length > 0) {
+      history.recordAction({
+        type: 'delete',
+        shapesAffected: ids,
+        before,
+        after: {},
+        timestamp: Date.now(),
+        userId: currentUser.uid,
+      });
+    }
+    
+    // Delete all shapes in a single Firestore operation
+    await deleteMultipleShapesService(GLOBAL_CANVAS_ID, ids);
+    
+    // Delete connections for all shapes
+    try {
+      for (const id of ids) {
+        await deleteShapeConnections(GLOBAL_CANVAS_ID, id);
+      }
+    } catch (error) {
+      console.error('Error deleting shape connections:', error);
+      // Don't throw - shape deletion should still succeed even if connection cleanup fails
+    }
+    
+    // Clear selection
+    setSelectedIds([]);
   };
 
   /**
@@ -216,7 +281,6 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * @param ids - Array of shape IDs to select
    */
   const selectMultipleShapes = (ids: string[]): void => {
-    console.log('[CanvasContext] selectMultipleShapes called with', ids.length, 'shape IDs:', ids);
     setSelectedIds(ids);
   };
 
@@ -754,22 +818,55 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const shapesArray = Object.values(action.before).map(s => s as Shape);
         await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsBefore);
       } else {
-        // Individual shape operations
-        for (const shapeId of action.shapesAffected) {
-          const beforeState = action.before[shapeId];
+        // Individual shape or connection operations
+        for (const id of action.shapesAffected) {
+          const beforeState = action.before[id];
+          const afterState = action.after[id];
           
-          if (action.type === 'create') {
-            // Undo create: delete the shape
-            await deleteShapeHook(shapeId);
-          } else if (action.type === 'delete') {
-            // Undo delete: recreate the shape
-            if (beforeState) {
-              await createShapeService(GLOBAL_CANVAS_ID, beforeState as ShapeCreateData);
+          // Check if this is a connection (marked with type: 'connection')
+          const isConnection = (afterState as any)?.type === 'connection' || (beforeState as any)?.type === 'connection';
+          
+          if (isConnection) {
+            // Handle connection undo
+            if (action.type === 'create') {
+              // Undo create: delete the connection
+              await deleteConnectionService(GLOBAL_CANVAS_ID, id);
+              if (selectedConnectionId === id) {
+                setSelectedConnectionId(null);
+              }
+            } else if (action.type === 'delete') {
+              // Undo delete: recreate the connection
+              if (beforeState) {
+                const connData = beforeState as any;
+                await addConnectionService(GLOBAL_CANVAS_ID, {
+                  id: connData.id,
+                  fromShapeId: connData.fromShapeId,
+                  fromAnchor: connData.fromAnchor,
+                  toShapeId: connData.toShapeId,
+                  toAnchor: connData.toAnchor,
+                  arrowType: connData.arrowType || 'end',
+                  label: connData.label,
+                  stroke: connData.stroke,
+                  strokeWidth: connData.strokeWidth,
+                  createdBy: connData.createdBy || currentUser.uid,
+                });
+              }
             }
           } else {
-            // Undo update: restore previous values
-            if (beforeState) {
-              await updateShapeHook(shapeId, beforeState);
+            // Handle shape undo
+            if (action.type === 'create') {
+              // Undo create: delete the shape
+              await deleteShapeHook(id);
+            } else if (action.type === 'delete') {
+              // Undo delete: recreate the shape
+              if (beforeState) {
+                await createShapeService(GLOBAL_CANVAS_ID, beforeState as ShapeCreateData);
+              }
+            } else {
+              // Undo update: restore previous values
+              if (beforeState) {
+                await updateShapeHook(id, beforeState);
+              }
             }
           }
         }
@@ -800,22 +897,55 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const shapesArray = Object.values(action.after).map(s => s as Shape);
         await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsAfter);
       } else {
-        // Individual shape operations
-        for (const shapeId of action.shapesAffected) {
-          const afterState = action.after[shapeId];
+        // Individual shape or connection operations
+        for (const id of action.shapesAffected) {
+          const beforeState = action.before[id];
+          const afterState = action.after[id];
           
-          if (action.type === 'create') {
-            // Redo create: recreate the shape
-            if (afterState) {
-              await createShapeService(GLOBAL_CANVAS_ID, afterState as ShapeCreateData);
+          // Check if this is a connection (marked with type: 'connection')
+          const isConnection = (afterState as any)?.type === 'connection' || (beforeState as any)?.type === 'connection';
+          
+          if (isConnection) {
+            // Handle connection redo
+            if (action.type === 'create') {
+              // Redo create: recreate the connection
+              if (afterState) {
+                const connData = afterState as any;
+                await addConnectionService(GLOBAL_CANVAS_ID, {
+                  id: connData.id,
+                  fromShapeId: connData.fromShapeId,
+                  fromAnchor: connData.fromAnchor,
+                  toShapeId: connData.toShapeId,
+                  toAnchor: connData.toAnchor,
+                  arrowType: connData.arrowType || 'end',
+                  label: connData.label,
+                  stroke: connData.stroke,
+                  strokeWidth: connData.strokeWidth,
+                  createdBy: connData.createdBy || currentUser.uid,
+                });
+              }
+            } else if (action.type === 'delete') {
+              // Redo delete: delete the connection again
+              await deleteConnectionService(GLOBAL_CANVAS_ID, id);
+              if (selectedConnectionId === id) {
+                setSelectedConnectionId(null);
+              }
             }
-          } else if (action.type === 'delete') {
-            // Redo delete: delete the shape again
-            await deleteShapeHook(shapeId);
           } else {
-            // Redo update: apply the new values
-            if (afterState) {
-              await updateShapeHook(shapeId, afterState);
+            // Handle shape redo
+            if (action.type === 'create') {
+              // Redo create: recreate the shape
+              if (afterState) {
+                await createShapeService(GLOBAL_CANVAS_ID, afterState as ShapeCreateData);
+              }
+            } else if (action.type === 'delete') {
+              // Redo delete: delete the shape again
+              await deleteShapeHook(id);
+            } else {
+              // Redo update: apply the new values
+              if (afterState) {
+                await updateShapeHook(id, afterState);
+              }
             }
           }
         }
@@ -826,6 +956,124 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isPerformingHistoryAction.current = false;
       }, 300);
     }
+  };
+
+  /**
+   * Add a connection between two shapes
+   * 
+   * @param connectionData - Connection data
+   * @returns Promise resolving to connection ID
+   */
+  const addConnection = async (connectionData: ConnectionCreateData): Promise<string> => {
+    if (!currentUser) throw new Error('Must be logged in to add connections');
+    
+    try {
+      const connectionId = await addConnectionService(GLOBAL_CANVAS_ID, connectionData);
+      
+      // Record connection creation in history
+      if (!isPerformingHistoryAction.current) {
+        history.recordAction({
+          type: 'create',
+          shapesAffected: [connectionId], // Use connection ID as affected "shape"
+          before: {},
+          after: {
+            [connectionId]: {
+              ...connectionData,
+              id: connectionId,
+              type: 'connection' as any, // Mark as connection for history tracking
+            }
+          },
+          timestamp: Date.now(),
+          userId: currentUser.uid,
+        });
+      }
+      
+      return connectionId;
+    } catch (error) {
+      console.error('Error adding connection:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Update a connection
+   * 
+   * @param id - Connection ID
+   * @param updates - Partial connection updates
+   */
+  const updateConnection = async (id: string, updates: ConnectionUpdateData): Promise<void> => {
+    if (!currentUser) throw new Error('Must be logged in to update connections');
+    
+    try {
+      await updateConnectionService(GLOBAL_CANVAS_ID, id, updates);
+    } catch (error) {
+      console.error('Error updating connection:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Delete a connection
+   * 
+   * @param id - Connection ID
+   */
+  const deleteConnection = async (id: string): Promise<void> => {
+    if (!currentUser) throw new Error('Must be logged in to delete connections');
+    
+    try {
+      // Find the connection before deleting for history
+      const connection = connections.find(c => c.id === id);
+      
+      await deleteConnectionService(GLOBAL_CANVAS_ID, id);
+      
+      // Record connection deletion in history
+      if (!isPerformingHistoryAction.current && connection) {
+        history.recordAction({
+          type: 'delete',
+          shapesAffected: [id],
+          before: {
+            [id]: {
+              ...connection,
+              type: 'connection' as any,
+            }
+          },
+          after: {},
+          timestamp: Date.now(),
+          userId: currentUser.uid,
+        });
+      }
+      
+      // Clear selection if this connection was selected
+      if (selectedConnectionId === id) {
+        setSelectedConnectionId(null);
+      }
+    } catch (error) {
+      console.error('Error deleting connection:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Select a connection
+   * 
+   * @param id - Connection ID (null to deselect)
+   */
+  const selectConnection = (id: string | null): void => {
+    setSelectedConnectionId(id);
+    // Deselect shapes when selecting a connection
+    if (id !== null) {
+      setSelectedIds([]);
+    }
+  };
+
+  /**
+   * Get all connections for a specific shape
+   * 
+   * @param shapeId - Shape ID
+   * @returns Array of connections involving this shape
+   */
+  const getShapeConnections = (shapeId: string): Connection[] => {
+    return getShapeConnectionsService(connections, shapeId);
   };
 
   /**
@@ -885,13 +1133,16 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const value: CanvasContextType = {
     shapes,
     groups,
+    connections,
     selectedId,
     selectedIds,
+    selectedConnectionId,
     loading,
     stageRef,
     addShape,
     updateShape,
     deleteShape,
+    deleteMultipleShapes,
     selectShape,
     selectMultipleShapes,
     isSelected,
@@ -909,6 +1160,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     updateGroupBounds,
     duplicateGroup,
     getGroupShapes,
+    addConnection,
+    updateConnection,
+    deleteConnection,
+    selectConnection,
+    getShapeConnections,
     undo,
     redo,
     canUndo: history.canUndo,

@@ -5,6 +5,7 @@
 
 import OpenAI from 'openai';
 import type { Shape } from '../utils/types';
+import { SYSTEM_PROMPT } from '../utils/ai-prompts';
 
 // Initialize OpenAI client
 // Note: API key must be in .env as VITE_OPENAI_API_KEY
@@ -48,14 +49,14 @@ const tools: CanvasTool[] = [
     type: 'function',
     function: {
       name: 'createShape',
-      description: 'Create a new shape on the canvas. Use this to add rectangles, circles, text, or lines. Unless the user specifies a location, use the viewport center coordinates provided in the system message. You can call this multiple times to create multiple shapes.',
+      description: 'Create a new shape on the canvas. Use this to add workflow shapes (process, decision, startEnd, document, database) or basic shapes (rectangles, circles, text, or lines). Unless the user specifies a location, use the viewport center coordinates provided in the system message. You can call this multiple times to create multiple shapes. ⚠️ IMPORTANT: If creating workflow shapes that are part of a sequence or flow, you MUST also call createConnection to link them together after creating all shapes.',
       parameters: {
         type: 'object',
         properties: {
           type: {
             type: 'string',
-            enum: ['rectangle', 'circle', 'text', 'line'],
-            description: 'The type of shape to create'
+            enum: ['rectangle', 'circle', 'text', 'line', 'process', 'decision', 'startEnd', 'document', 'database'],
+            description: 'The type of shape to create. Workflow shapes: process (process steps), decision (yes/no branches), startEnd (start/end points), document (reports/forms), database (data storage)'
           },
           x: {
             type: 'number',
@@ -83,7 +84,7 @@ const tools: CanvasTool[] = [
           },
           text: {
             type: 'string',
-            description: 'Text content (for text shapes)'
+            description: 'Text content (for text shapes and workflow shapes)'
           },
           fontSize: {
             type: 'number',
@@ -91,6 +92,46 @@ const tools: CanvasTool[] = [
           }
         },
         required: ['type', 'x', 'y']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'createConnection',
+      description: '🔗 REQUIRED FOR WORKFLOWS: Create a connector (arrow) between two shapes in a workflow. Use this to connect process steps, decision branches, etc. The connector will automatically snap to anchor points and maintain the connection when shapes move. You MUST call this after creating workflow shapes that are sequential or related.',
+      parameters: {
+        type: 'object',
+        properties: {
+          fromShapeId: {
+            type: 'string',
+            description: 'ID of the shape to connect from'
+          },
+          toShapeId: {
+            type: 'string',
+            description: 'ID of the shape to connect to'
+          },
+          fromAnchor: {
+            type: 'string',
+            enum: ['top', 'right', 'bottom', 'left'],
+            description: 'Anchor point on source shape (optional, auto-determined if not provided)'
+          },
+          toAnchor: {
+            type: 'string',
+            enum: ['top', 'right', 'bottom', 'left'],
+            description: 'Anchor point on target shape (optional, auto-determined if not provided)'
+          },
+          arrowType: {
+            type: 'string',
+            enum: ['none', 'end', 'both'],
+            description: 'Arrow style: none (plain line), end (arrow at destination), both (arrows at both ends). Default: end'
+          },
+          label: {
+            type: 'string',
+            description: 'Label for the connection (e.g., "Yes", "No", "Success", "Fail")'
+          }
+        },
+        required: ['fromShapeId', 'toShapeId']
       }
     }
   },
@@ -205,6 +246,7 @@ export interface CanvasOperations {
   deleteShape: (shapeId: string) => Promise<void>;
   alignShapes: (shapeIds: string[], alignType: string) => Promise<void>;
   distributeShapes: (shapeIds: string[], direction: string) => Promise<void>;
+  createConnection: (fromShapeId: string, toShapeId: string, options: any) => Promise<string>;
 }
 
 /**
@@ -214,6 +256,7 @@ export interface AIAgentResult {
   interpretation: string;
   shapesCreated: string[];
   shapesModified: string[];
+  connectionsCreated: string[];
   error?: string;
 }
 
@@ -224,29 +267,75 @@ async function executeFunctionCall(
   functionName: string,
   functionArgs: any,
   operations: CanvasOperations
-): Promise<{ success: boolean; result?: any; error?: string }> {
+): Promise<{ success: boolean; result?: any; error?: string; shapeType?: string }> {
   try {
-    console.log(`[AI] Executing function: ${functionName}`, functionArgs);
-    
     switch (functionName) {
       case 'createShape': {
         const { type, x, y, fill, width, height, radius, text, fontSize } = functionArgs;
-        const properties: any = { fill: fill || '#cccccc' };
+        const properties: any = {};
         
         if (type === 'rectangle') {
           properties.width = width || 100;
           properties.height = height || 100;
+          properties.fill = fill || '#cccccc';
         } else if (type === 'circle') {
           properties.radius = radius || 50;
+          properties.fill = fill || '#cccccc';
         } else if (type === 'text') {
           properties.text = text || 'Text';
           properties.fontSize = fontSize || 16;
+          properties.fill = fill || '#000000';
+        } else if (type === 'process') {
+          properties.width = width || 120;
+          properties.height = height || 60;
+          properties.fill = fill || '#e0e7ff';
+          properties.text = text || '';
+          properties.fontSize = fontSize || 16;
+          properties.cornerRadius = 8;
+        } else if (type === 'decision') {
+          properties.width = width || 100;
+          properties.height = height || 100;
+          properties.fill = fill || '#fef3c7';
+          properties.text = text || '';
+          properties.fontSize = fontSize || 16;
+        } else if (type === 'startEnd') {
+          properties.width = width || 120;
+          properties.height = height || 60;
+          properties.fill = fill || '#d1fae5';
+          properties.text = text || '';
+          properties.fontSize = fontSize || 16;
+        } else if (type === 'document') {
+          properties.width = width || 100;
+          properties.height = height || 80;
+          properties.fill = fill || '#f3f4f6';
+          properties.text = text || '';
+          properties.fontSize = fontSize || 16;
+        } else if (type === 'database') {
+          properties.width = width || 100;
+          properties.height = height || 80;
+          properties.fill = fill || '#ede9fe';
+          properties.text = text || '';
+          properties.fontSize = fontSize || 16;
         }
         
-        console.log(`[AI] Creating ${type} at (${x}, ${y}) with properties:`, properties);
         const shapeId = await operations.createShape(type, { x, y }, properties);
-        console.log(`[AI] Shape created with ID: ${shapeId}`);
-        return { success: true, result: shapeId };
+        return { success: true, result: shapeId, shapeType: type };
+      }
+      
+      case 'createConnection': {
+        const { fromShapeId, toShapeId, fromAnchor, toAnchor, arrowType, label } = functionArgs;
+        
+        try {
+          const connectionId = await operations.createConnection(fromShapeId, toShapeId, {
+            fromAnchor: fromAnchor || 'right',
+            toAnchor: toAnchor || 'left',
+            arrowType: arrowType || 'end',
+            label
+          });
+          return { success: true, result: connectionId };
+        } catch (error) {
+          return { success: false, error: String(error) };
+        }
       }
       
       case 'updateShape': {
@@ -297,7 +386,8 @@ export async function runAIAgent(
   const result: AIAgentResult = {
     interpretation: '',
     shapesCreated: [],
-    shapesModified: []
+    shapesModified: [],
+    connectionsCreated: []
   };
   
   try {
@@ -316,44 +406,17 @@ export async function runAIAgent(
 
     // Build context about current canvas
     const canvasContext = `
-You are an AI assistant that helps users design on a canvas by creating and manipulating shapes.
-
 Current canvas state:
-- Canvas size: 5000x5000 pixels
 - User's viewport center: (${Math.round(viewportCenter.x)}, ${Math.round(viewportCenter.y)})
 - Number of shapes: ${canvasState.length}
-- Available shape types: rectangle, circle, text, line
 
 Shapes currently on canvas:
 ${shapesList}
-
-Guidelines for creating shapes:
-- You can create multiple shapes in a single response by calling createShape multiple times
-- Maximum 50 shapes per request - if user requests more, politely decline and ask them to request 50 or fewer
-- Unless the user specifies a location, create shapes near the viewport center: (${Math.round(viewportCenter.x)}, ${Math.round(viewportCenter.y)})
-- When creating multiple shapes, position them close together within the viewport unless user specifies otherwise
-- Arrange shapes logically based on shape type and quantity (horizontal line, vertical stack, or grid)
-- Vary properties (colors, sizes) based on the prompt context - don't make all shapes identical unless specified
-- Use reasonable spacing between elements (let shapes touch if specified, otherwise 20-100px gaps)
-- Keep shapes within canvas bounds (0-5000 for x and y)
-- For forms or UI layouts, align elements properly
-- Use readable font sizes (16-24px for text)
-- Use appropriate colors (avoid pure black/white, use hex codes)
-
-Guidelines for modifying shapes:
-- When user says "all rectangles" or "all circles", identify shapes by type from the list above
-- When user says "the red circle" or "the blue rectangle", identify by color and type
-- For bulk modifications (e.g., "make all rectangles red"), call updateShape once for each matching shape
-- You can update multiple shapes at once - updateShape calls will execute in parallel efficiently
-- Common color names to hex codes: red=#EF4444, blue=#3B82F6, green=#10B981, purple=#8B5CF6, yellow=#F59E0B, orange=#F97316, pink=#EC4899
-- "Aggie maroon" = #500000 (Texas A&M maroon)
 
 User command: ${userCommand}
 
 Please use the available tools to fulfill the user's request. Identify shapes from the canvas state above.
     `.trim();
-    
-    console.log('[AI] Sending request to OpenAI...');
     
     // Call OpenAI with tools (supports parallel function calling)
     const response = await client.chat.completions.create({
@@ -361,7 +424,7 @@ Please use the available tools to fulfill the user's request. Identify shapes fr
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful AI assistant that creates and manipulates shapes on a canvas based on user commands. Always use the provided tools to perform canvas operations. You can call createShape multiple times to create multiple shapes at once.'
+          content: SYSTEM_PROMPT
         },
         {
           role: 'user',
@@ -375,8 +438,6 @@ Please use the available tools to fulfill the user's request. Identify shapes fr
       max_tokens: 2000
     });
     
-    console.log('[AI] OpenAI response:', response);
-    
     const message = response.choices[0].message;
     
     // Extract interpretation from message content
@@ -385,15 +446,13 @@ Please use the available tools to fulfill the user's request. Identify shapes fr
     }
     
     // Execute tool calls (supports multiple tool calls)
+    const workflowShapeTypes = ['process', 'decision', 'startEnd', 'document', 'database'];
+    let hasWorkflowShapes = false;
+    
     if (message.tool_calls && message.tool_calls.length > 0) {
-      console.log(`[AI] Processing ${message.tool_calls.length} tool calls`);
-      
-      // Group tool calls by type - all must execute sequentially to avoid Firestore race condition
-      // (All operations modify the same shapes array in the canvas document)
       const allCalls: Array<{ name: string; args: any }> = [];
       
       message.tool_calls.forEach((toolCall) => {
-        // Type guard: only process if it's a function tool call
         if ('function' in toolCall && toolCall.function) {
           const { name, arguments: argsString } = toolCall.function;
           const functionArgs = JSON.parse(argsString);
@@ -401,26 +460,27 @@ Please use the available tools to fulfill the user's request. Identify shapes fr
         }
       });
       
-      // Execute all calls sequentially to avoid Firestore race condition
-      // (Multiple parallel writes to same document's shapes array cause last-write-wins issue)
-      console.log(`[AI] Executing ${allCalls.length} operations sequentially to avoid race conditions`);
       for (const { name, args } of allCalls) {
-        console.log(`[AI] Executing: ${name}`, args);
         const execResult = await executeFunctionCall(name, args, operations);
         
         if (execResult.success) {
           if (name === 'createShape' && execResult.result) {
             result.shapesCreated.push(execResult.result);
+            if (execResult.shapeType && workflowShapeTypes.includes(execResult.shapeType)) {
+              hasWorkflowShapes = true;
+            }
+          } else if (name === 'createConnection' && execResult.result) {
+            result.connectionsCreated.push(execResult.result);
           } else if (name === 'updateShape' || name === 'deleteShape') {
             result.shapesModified.push(args.shapeId);
           }
-        } else {
-          console.error(`[AI] Tool execution failed for ${name}:`, execResult.error);
         }
       }
     }
     
-    console.log(`[AI] Complete: ${result.shapesCreated.length} created, ${result.shapesModified.length} modified`);
+    if (hasWorkflowShapes && result.shapesCreated.length >= 2 && result.connectionsCreated.length === 0) {
+      result.interpretation = (result.interpretation || '') + '\n\n⚠️ Note: I created the shapes but may have missed creating connections between them. You can manually connect them by clicking anchor points, or ask me to "connect these shapes."';
+    }
     
     return result;
     

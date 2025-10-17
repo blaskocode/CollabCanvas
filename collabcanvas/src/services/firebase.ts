@@ -41,8 +41,7 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firebase services
 export const auth = getAuth(app);
 
-// Initialize Firestore with persistent cache (new API)
-// This enables offline support with multi-tab synchronization
+// Initialize Firestore with persistent cache for offline support
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()

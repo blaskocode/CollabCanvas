@@ -12,8 +12,9 @@ export function AIInput() {
   const [command, setCommand] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<string>('');
+  const [isExpanded, setIsExpanded] = useState(false);
   
-  const { shapes, addShape, updateShape, deleteShape, alignShapes, distributeShapes, stageRef } = useCanvasContext();
+  const { shapes, addShape, updateShape, deleteShape, alignShapes, distributeShapes, addConnection, stageRef } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
 
@@ -35,42 +36,49 @@ export function AIInput() {
     
     try {
       // Create operations interface
+      // Track shape creation order to map IDs
+      const shapeCreationOrder: string[] = [];
+      
       const operations: CanvasOperations = {
         createShape: async (type: string, position: { x: number; y: number }, properties: any) => {
-          console.log('[AIInput] Creating shape:', type, position, properties);
-          // addShape doesn't return ID, but creates shape in Firestore
-          // We generate a temporary ID for tracking
-          const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          await addShape(type as any, position, properties);
-          // Note: The actual shape will have a different ID assigned by Firestore
-          // For now, return temp ID for AI response tracking
-          return tempId;
+          const shapeId = await addShape(type as any, position, properties);
+          shapeCreationOrder.push(shapeId);
+          return shapeId;
         },
         
         updateShape: async (shapeId: string, updates: any) => {
-          console.log('[AIInput] Updating shape:', shapeId, updates);
           await updateShape(shapeId, updates);
         },
         
         deleteShape: async (shapeId: string) => {
-          console.log('[AIInput] Deleting shape:', shapeId);
           await deleteShape(shapeId);
         },
         
         alignShapes: async (shapeIds: string[], alignType: string) => {
-          console.log('[AIInput] Aligning shapes:', shapeIds, alignType);
           await alignShapes(alignType as 'left' | 'right' | 'centerH' | 'top' | 'centerV' | 'bottom');
         },
         
         distributeShapes: async (shapeIds: string[], direction: string) => {
-          console.log('[AIInput] Distributing shapes:', shapeIds, direction);
           await distributeShapes(direction as 'horizontal' | 'vertical');
+        },
+        
+        createConnection: async (fromShapeId: string, toShapeId: string, options: any) => {
+          const connectionId = await addConnection({
+            fromShapeId,
+            toShapeId,
+            fromAnchor: options.fromAnchor || 'right',
+            toAnchor: options.toAnchor || 'left',
+            arrowType: options.arrowType || 'end',
+            label: options.label,
+            createdBy: currentUser!.uid,
+          });
+          return connectionId;
         }
       };
       
       // Calculate viewport center in canvas coordinates
       const stage = stageRef?.current;
-      let viewportCenter = { x: 2500, y: 2500 }; // Default to canvas center
+      let viewportCenter = { x: 2500, y: 2500 };
       
       if (stage) {
         const viewportCenterScreen = {
@@ -78,38 +86,33 @@ export function AIInput() {
           y: window.innerHeight / 2
         };
         
-        // Convert screen coordinates to canvas coordinates accounting for pan and zoom
         viewportCenter = {
           x: (viewportCenterScreen.x - stage.x()) / stage.scaleX(),
           y: (viewportCenterScreen.y - stage.y()) / stage.scaleY()
         };
-        
-        console.log('[AIInput] Viewport center:', viewportCenter);
       }
       
-      // Run AI agent
-      console.log('[AIInput] Running AI agent with command:', command);
       const result = await runAIAgent(command, shapes, operations, viewportCenter);
       
       if (result.error) {
         toast.error(result.error);
         setLastResult(`Error: ${result.error}`);
       } else {
-        // Create better success message for multiple shapes
-        let summary = '';
-        if (result.shapesCreated.length > 0 && result.shapesModified.length > 0) {
-          summary = `Created ${result.shapesCreated.length} shape(s) and modified ${result.shapesModified.length} shape(s)`;
-        } else if (result.shapesCreated.length > 0) {
-          summary = result.shapesCreated.length === 1 
-            ? 'Created 1 shape' 
-            : `Created ${result.shapesCreated.length} shapes`;
-        } else if (result.shapesModified.length > 0) {
-          summary = result.shapesModified.length === 1
-            ? 'Modified 1 shape'
-            : `Modified ${result.shapesModified.length} shapes`;
-        } else {
-          summary = 'Operation completed';
+        // Create better success message for shapes and connections
+        const parts = [];
+        if (result.shapesCreated.length > 0) {
+          parts.push(`${result.shapesCreated.length} shape${result.shapesCreated.length > 1 ? 's' : ''}`);
         }
+        if (result.connectionsCreated.length > 0) {
+          parts.push(`${result.connectionsCreated.length} connection${result.connectionsCreated.length > 1 ? 's' : ''}`);
+        }
+        if (result.shapesModified.length > 0) {
+          parts.push(`modified ${result.shapesModified.length} shape${result.shapesModified.length > 1 ? 's' : ''}`);
+        }
+        
+        const summary = parts.length > 0 
+          ? `Created ${parts.join(', ')}`
+          : 'Operation completed';
         
         toast.success(summary);
         setLastResult(result.interpretation || summary);
@@ -133,15 +136,28 @@ export function AIInput() {
     'Create 5 colorful circles',
     'Make all rectangles blue',
     'Create a login form',
-    'Delete all circles'
+    'Design code, write code, test code, deploy code',
+    'If tests pass deploy, if not send email',
+    'Start, fetch from database, validate data, save to database, end'
   ];
 
   const fillExample = (cmd: string) => {
     setCommand(cmd);
   };
 
+  // Keep expanded if user is typing or has content
+  const shouldExpand = isExpanded || command.length > 0 || loading || lastResult.length > 0;
+
   return (
-    <div className="ai-input-container fixed bottom-4 left-1/2 transform -translate-x-1/2 z-10 w-full max-w-2xl px-4">
+    <div 
+      className="ai-input-container fixed bottom-4 left-4 z-10 transition-all duration-300 ease-in-out"
+      style={{
+        width: shouldExpand ? '42rem' : 'auto',
+        maxWidth: '42rem',
+      }}
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
       {/* Results Display */}
       {lastResult && (
         <div className="mb-2 glass-strong rounded-lg p-3 text-sm text-gray-700 animate-fadeIn">
@@ -167,52 +183,89 @@ export function AIInput() {
       )}
       
       {/* Input Form */}
-      <form onSubmit={handleSubmit} className="glass-strong rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center p-4 space-x-3">
-          {/* AI Icon */}
-          <div className="flex-shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      <form onSubmit={handleSubmit} className="glass-strong rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out">
+        <div className="flex items-center space-x-3" style={{ padding: shouldExpand ? '1rem' : '0.5rem' }}>
+          {/* AI Icon - Sparkles/Stars to indicate AI */}
+          <div className="flex-shrink-0 relative group">
+            <div 
+              className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg hover:shadow-xl transition-all cursor-pointer relative"
+              style={{
+                animation: !shouldExpand ? 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none'
+              }}
+            >
+              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                {/* Sparkles icon - commonly associated with AI */}
+                <path d="M12 0L13.5 8.5L22 10L13.5 11.5L12 20L10.5 11.5L2 10L10.5 8.5L12 0Z" />
+                <path d="M19 3L19.75 5.75L22.5 6.5L19.75 7.25L19 10L18.25 7.25L15.5 6.5L18.25 5.75L19 3Z" />
+                <path d="M5 14L5.75 16.75L8.5 17.5L5.75 18.25L5 21L4.25 18.25L1.5 17.5L4.25 16.75L5 14Z" />
               </svg>
+              {/* AI Badge - only visible when minimized */}
+              {!shouldExpand && (
+                <div className="absolute -bottom-1 -right-1 bg-white text-purple-600 text-[9px] font-bold px-1 py-0.5 rounded shadow-md">
+                  AI
+                </div>
+              )}
             </div>
+            {/* Tooltip when minimized */}
+            {!shouldExpand && (
+              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                Canvas AI Assistant
+                <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
+              </div>
+            )}
           </div>
           
-          {/* Input Field */}
-          <input
-            type="text"
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder="Ask AI: 'Create 5 circles', 'Make all rectangles red', etc..."
-            disabled={loading}
-            className="flex-1 bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 text-sm disabled:opacity-50"
-            aria-label="AI command input"
-          />
-          
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={loading || !command.trim()}
-            className="flex-shrink-0 px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:from-purple-600 hover:to-pink-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5"
-            aria-label="Send AI command"
+          {/* Input Field - Hidden when minimized */}
+          <div 
+            className="flex-1 transition-all duration-300 ease-in-out overflow-hidden"
+            style={{
+              width: shouldExpand ? '100%' : '0',
+              opacity: shouldExpand ? 1 : 0,
+            }}
           >
-            {loading ? (
-              <div className="flex items-center space-x-2">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>Thinking...</span>
-              </div>
-            ) : (
-              'Send'
-            )}
-          </button>
+            <input
+              type="text"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder="Ask AI: 'Create 5 circles', 'Make all rectangles red', etc..."
+              disabled={loading}
+              className="w-full bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 text-sm disabled:opacity-50"
+              aria-label="AI command input"
+            />
+          </div>
+          
+          {/* Send Button - Hidden when minimized */}
+          <div
+            className="flex-shrink-0 transition-all duration-300 ease-in-out overflow-hidden"
+            style={{
+              width: shouldExpand ? 'auto' : '0',
+              opacity: shouldExpand ? 1 : 0,
+            }}
+          >
+            <button
+              type="submit"
+              disabled={loading || !command.trim()}
+              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:from-purple-600 hover:to-pink-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5 whitespace-nowrap"
+              aria-label="Send AI command"
+            >
+              {loading ? (
+                <div className="flex items-center space-x-2">
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Thinking...</span>
+                </div>
+              ) : (
+                'Send'
+              )}
+            </button>
+          </div>
         </div>
         
-        {/* Example Commands */}
-        {!loading && command.length === 0 && (
-          <div className="px-4 pb-3 pt-1 border-t border-gray-200">
+        {/* Example Commands - Only shown when expanded */}
+        {shouldExpand && !loading && command.length === 0 && (
+          <div className="px-4 pb-3 pt-1 border-t border-gray-200 animate-fadeIn">
             <div className="flex flex-wrap gap-2">
               <span className="text-xs text-gray-500">Try:</span>
               {exampleCommands.map((cmd, idx) => (
@@ -230,12 +283,14 @@ export function AIInput() {
         )}
       </form>
       
-      {/* Powered by OpenAI badge */}
-      <div className="text-center mt-2">
-        <span className="text-xs text-gray-500">
-          Powered by <span className="font-semibold text-purple-600">OpenAI</span>
-        </span>
-      </div>
+      {/* Powered by OpenAI badge - Only shown when expanded */}
+      {shouldExpand && (
+        <div className="text-center mt-2 animate-fadeIn">
+          <span className="text-xs text-gray-500">
+            Powered by <span className="font-semibold text-purple-600">OpenAI</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

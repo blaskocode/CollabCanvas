@@ -18,9 +18,18 @@ import Rectangle from './shapes/Rectangle';
 import Circle from './shapes/Circle';
 import Text from './shapes/Text';
 import Line from './shapes/Line';
+import ProcessBox from './shapes/ProcessBox';
+import DecisionDiamond from './shapes/DecisionDiamond';
+import StartEndOval from './shapes/StartEndOval';
+import DocumentShape from './shapes/DocumentShape';
+import DatabaseShape from './shapes/DatabaseShape';
+import Connector from './shapes/Connector';
+import { ShapeAnchors } from './AnchorPoint';
+import InlineTextEditor from './InlineTextEditor';
 import Cursor from '../Collaboration/Cursor';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Shape as ShapeType } from '../../utils/types';
+import { supportsAnchors } from '../../utils/anchor-snapping';
 
 /**
  * Canvas Component
@@ -28,9 +37,13 @@ import type { Shape as ShapeType } from '../../utils/types';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, clearAll } = useCanvasContext();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
+  
+  // Inline text editor state
+  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
   
   // Track last selected group for two-click selection
   const lastSelectedGroupRef = useRef<{ groupId: string; timestamp: number } | null>(null);
@@ -84,10 +97,30 @@ const Canvas: React.FC = () => {
   const [drawingShapeType, setDrawingShapeType] = useState<ShapeType['type'] | null>(null);
   const [drawingPreview, setDrawingPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const drawingStartRef = useRef<{ x: number; y: number } | null>(null);
+  
+  // Placement mode state (click-to-place for workflow shapes)
+  const [isPlacementMode, setIsPlacementMode] = useState(false);
+  const [placementShapeType, setPlacementShapeType] = useState<ShapeType['type'] | null>(null);
+  const [placementPreview, setPlacementPreview] = useState<{ x: number; y: number } | null>(null);
+  
+  // Hover state for showing anchors
+  const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
+  
+  // Connection mode state (click anchor to anchor)
+  const [connectionStart, setConnectionStart] = useState<{ shapeId: string; anchor: string } | null>(null);
 
   // Transformer refs for resize/rotate functionality
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Node | null>(null);
+  
+  // Default sizes for workflow shapes (width x height)
+  const defaultWorkflowShapeSizes: Record<string, { width: number; height: number }> = {
+    process: { width: 160, height: 80 },
+    decision: { width: 120, height: 120 },
+    startEnd: { width: 140, height: 70 },
+    document: { width: 140, height: 100 },
+    database: { width: 120, height: 80 },
+  };
 
   /**
    * Center the canvas in the viewport at minimum zoom
@@ -172,10 +205,12 @@ const Canvas: React.FC = () => {
         return;
       }
 
-      // Escape key: exit drawing mode or deselect current selection
+      // Escape key: exit drawing/placement mode or deselect current selection
       if (e.key === 'Escape') {
         if (isDrawingMode) {
           exitDrawingMode();
+        } else if (isPlacementMode) {
+          exitPlacementMode();
         } else if (selectedIds.length > 0) {
           selectShape(null);
           lastSelectedGroupRef.current = null; // Reset two-click selection
@@ -186,8 +221,59 @@ const Canvas: React.FC = () => {
       // Ctrl+D: Duplicate selected shape(s)
       if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
-        if (selectedId) {
-          duplicateShape(selectedId);
+        if (selectedIds.length > 0) {
+          // Capture the shape IDs before any state changes
+          const shapesToDuplicate = [...selectedIds];
+          let duplicatedCount = 0;
+          let lockedCount = 0;
+          
+          // Check which shapes can be duplicated
+          const duplicateOperations = shapesToDuplicate.map(shapeId => {
+            const selectedShape = shapes.find((shape) => shape.id === shapeId);
+            
+            if (selectedShape) {
+              // Check if shape is locked by another user
+              const isLockedByOtherUser = selectedShape.isLocked && 
+                                          selectedShape.lockedBy && 
+                                          selectedShape.lockedBy !== currentUser?.uid;
+              
+              if (!isLockedByOtherUser) {
+                return { shapeId, canDuplicate: true };
+              } else {
+                return { shapeId, canDuplicate: false };
+              }
+            }
+            return { shapeId, canDuplicate: false };
+          });
+          
+          // Count operations
+          duplicatedCount = duplicateOperations.filter(op => op.canDuplicate).length;
+          lockedCount = duplicateOperations.filter(op => !op.canDuplicate).length;
+          
+          // Execute duplications sequentially to avoid race conditions
+          const executeDuplicates = async () => {
+            for (const op of duplicateOperations.filter(op => op.canDuplicate)) {
+              await duplicateShape(op.shapeId);
+            }
+          };
+          
+          executeDuplicates()
+            .then(() => {
+              if (duplicatedCount > 0) {
+                if (duplicatedCount > 1) {
+                  toast.success(`Duplicated ${duplicatedCount} shapes`);
+                } else {
+                  toast.success('Shape duplicated');
+                }
+              }
+              if (lockedCount > 0) {
+                toast.error(`Cannot duplicate: ${lockedCount} shape${lockedCount > 1 ? 's are' : ' is'} locked by other users`);
+              }
+            })
+            .catch((err) => {
+              console.error('Error duplicating shapes:', err);
+              toast.error('Failed to duplicate some shapes');
+            });
         }
         return;
       }
@@ -279,9 +365,29 @@ const Canvas: React.FC = () => {
         // Prevent default browser behavior (e.g., going back in history)
         e.preventDefault();
 
+        // Delete selected connection first (if any)
+        if (selectedConnectionId) {
+          deleteConnection(selectedConnectionId)
+            .then(() => {
+              toast.success('Connection deleted');
+            })
+            .catch((error) => {
+              console.error('Error deleting connection:', error);
+              toast.error('Failed to delete connection');
+            });
+          return;
+        }
+
         // Delete all selected shapes
         if (selectedIds.length > 0) {
-          for (const shapeId of selectedIds) {
+          // Capture the shape IDs before any state changes
+          const shapesToDelete = [...selectedIds];
+          
+          // Check which shapes can be deleted (not locked by other users)
+          const idsToDelete: string[] = [];
+          let lockedCount = 0;
+          
+          shapesToDelete.forEach(shapeId => {
             const selectedShape = shapes.find((shape) => shape.id === shapeId);
             
             if (selectedShape) {
@@ -291,12 +397,35 @@ const Canvas: React.FC = () => {
                                           selectedShape.lockedBy !== currentUser?.uid;
               
               if (!isLockedByOtherUser) {
-                // Delete the shape
-                deleteShape(shapeId);
+                idsToDelete.push(shapeId);
               } else {
-                toast.error(`Cannot delete: Some shapes are locked by other users`);
+                lockedCount++;
               }
             }
+          });
+          
+          // Clear selection immediately for instant visual feedback
+          selectShape(null);
+          
+          // Delete all shapes in a single atomic Firestore operation
+          if (idsToDelete.length > 0) {
+            deleteMultipleShapes(idsToDelete)
+              .then(() => {
+                if (idsToDelete.length > 1) {
+                  toast.success(`Deleted ${idsToDelete.length} shapes`);
+                } else {
+                  toast.success('Shape deleted');
+                }
+                if (lockedCount > 0) {
+                  toast.error(`Cannot delete: ${lockedCount} shape${lockedCount > 1 ? 's are' : ' is'} locked by other users`);
+                }
+              })
+              .catch((err) => {
+                console.error('Error deleting shapes:', err);
+                toast.error('Failed to delete some shapes');
+              });
+          } else if (lockedCount > 0) {
+            toast.error(`Cannot delete: All selected shapes are locked by other users`);
           }
         }
       }
@@ -304,7 +433,7 @@ const Canvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, selectedIds, shapes, deleteShape, selectShape, duplicateShape, bringForward, sendBack, undo, redo, canUndo, canRedo, toast, currentUser]);
+  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges
@@ -935,7 +1064,7 @@ const Canvas: React.FC = () => {
   /**
    * Handle stage mouse down - start box select or drawing
    */
-  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+  const handleStageMouseDown = async (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
     if (!stage) return;
     
@@ -947,6 +1076,25 @@ const Canvas: React.FC = () => {
     
     const canvasX = (pos.x - stage.x()) / stage.scaleX();
     const canvasY = (pos.y - stage.y()) / stage.scaleY();
+    
+    // Handle placement mode (click-to-place workflow shapes)
+    if (isPlacementMode && placementShapeType && placementPreview && e.evt.button === 0) {
+      const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
+      
+      // Place shape at the preview position
+      await addShape(placementShapeType as ShapeType['type'], 
+        { x: placementPreview.x, y: placementPreview.y }, 
+        { 
+          width: shapeSize.width, 
+          height: shapeSize.height,
+          text: placementShapeType.charAt(0).toUpperCase() + placementShapeType.slice(1) // Default text
+        }
+      );
+      
+      // Exit placement mode after placing one shape
+      exitPlacementMode();
+      return;
+    }
     
     // Handle drawing mode
     if (isDrawingMode && drawingShapeType && e.evt.button === 0) {
@@ -986,6 +1134,17 @@ const Canvas: React.FC = () => {
     
     const canvasX = (pos.x - stage.x()) / stage.scaleX();
     const canvasY = (pos.y - stage.y()) / stage.scaleY();
+    
+    // Handle placement preview (ghost shape follows cursor)
+    if (isPlacementMode && placementShapeType) {
+      const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
+      // Center the preview on cursor
+      setPlacementPreview({ 
+        x: canvasX - shapeSize.width / 2, 
+        y: canvasY - shapeSize.height / 2 
+      });
+      return;
+    }
     
     // Handle drawing preview
     if (isDrawingMode && drawingStartRef.current) {
@@ -1322,11 +1481,21 @@ const Canvas: React.FC = () => {
   };
 
   /**
-   * Handle add shape button click - enter drawing mode
+   * Handle add shape button click - enter drawing or placement mode
    */
   const handleAddShape = (type: ShapeType['type']) => {
-    setIsDrawingMode(true);
-    setDrawingShapeType(type);
+    const workflowShapeTypes = ['process', 'decision', 'startEnd', 'document', 'database'];
+    
+    if (workflowShapeTypes.includes(type)) {
+      // Use placement mode for workflow shapes (click-to-place)
+      setIsPlacementMode(true);
+      setPlacementShapeType(type);
+      setPlacementPreview(null); // Will be set on mouse move
+    } else {
+      // Use drawing mode for basic shapes (drag-to-draw)
+      setIsDrawingMode(true);
+      setDrawingShapeType(type);
+    }
   };
 
   /**
@@ -1337,6 +1506,15 @@ const Canvas: React.FC = () => {
     setDrawingShapeType(null);
     setDrawingPreview(null);
     drawingStartRef.current = null;
+  };
+  
+  /**
+   * Exit placement mode (click-to-place) and reset state
+   */
+  const exitPlacementMode = () => {
+    setIsPlacementMode(false);
+    setPlacementShapeType(null);
+    setPlacementPreview(null);
   };
 
   /**
@@ -1524,6 +1702,117 @@ const Canvas: React.FC = () => {
                 console.error('Error updating line points:', error);
               }
             }}
+          />
+        );
+      
+      case 'process':
+        return (
+          <ProcessBox
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            cornerRadius={shape.cornerRadius || 8}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            onDoubleClick={() => setEditingShapeId(shape.id)}
+          />
+        );
+      
+      case 'decision':
+        return (
+          <DecisionDiamond
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            onDoubleClick={() => setEditingShapeId(shape.id)}
+          />
+        );
+      
+      case 'startEnd':
+        return (
+          <StartEndOval
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            onDoubleClick={() => setEditingShapeId(shape.id)}
+          />
+        );
+      
+      case 'document':
+        return (
+          <DocumentShape
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            onDoubleClick={() => setEditingShapeId(shape.id)}
+          />
+        );
+      
+      case 'database':
+        return (
+          <DatabaseShape
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            onDoubleClick={() => setEditingShapeId(shape.id)}
           />
         );
       
@@ -1744,6 +2033,37 @@ const Canvas: React.FC = () => {
         onMouseMove={(e) => {
           handleMouseMove(e);
           handleStageMouseMove(e);
+          
+          // Track hovered shape for showing anchors
+          const target = e.target;
+          if (target === e.target.getStage()) {
+            // Hovering over empty space
+            setHoveredShapeId(null);
+          } else {
+            let shapeId = target.id();
+            
+            // Check if hovering over an anchor point (name format: "anchor-{shapeId}")
+            const targetName = target.name();
+            if (targetName && targetName.startsWith('anchor-')) {
+              shapeId = targetName.replace('anchor-', '');
+            }
+            
+            // If still no ID, walk up the parent chain
+            if (!shapeId) {
+              let currentNode: any = target;
+              while (!shapeId && currentNode.parent && currentNode.parent.getClassName() !== 'Stage') {
+                currentNode = currentNode.parent;
+                shapeId = currentNode.id();
+              }
+            }
+            
+            if (shapeId && shapes.some(s => s.id === shapeId)) {
+              setHoveredShapeId(shapeId);
+            } else {
+              // Clear hover if not a valid shape
+              setHoveredShapeId(null);
+            }
+          }
         }}
         onMouseUp={handleStageMouseUp}
         onDragEnd={handleStageDragEnd}
@@ -1779,9 +2099,74 @@ const Canvas: React.FC = () => {
             );
           })}
           
+          {/* Connectors - Render connections between shapes */}
+          {connections.map(connection => (
+            <Connector
+              key={connection.id}
+              connection={connection}
+              shapes={shapes}
+              shapeNodes={shapeNodesRef.current}
+              isSelected={selectedConnectionId === connection.id}
+              onSelect={() => selectConnection(connection.id)}
+              onContextMenu={(e) => {
+                e.cancelBubble = true;
+                // TODO: Add connection context menu if needed
+              }}
+            />
+          ))}
+          
+          {/* Anchor points - Show on selected OR hovered shapes OR shapes with active connection start */}
+          {shapes.filter(shape => 
+            supportsAnchors(shape) && (
+              (selectedIds.length === 1 && shape.id === selectedId) || 
+              shape.id === hoveredShapeId ||
+              (connectionStart && shape.id === connectionStart.shapeId)
+            )
+          ).map(shape => (
+            <ShapeAnchors
+              key={`anchors-${shape.id}`}
+              shape={shape}
+              konvaNode={shapeNodesRef.current.get(shape.id) || null}
+              highlightedAnchor={connectionStart && connectionStart.shapeId === shape.id ? connectionStart.anchor as any : null}
+              activeAnchor={connectionStart && connectionStart.shapeId === shape.id ? connectionStart.anchor as any : null}
+              onAnchorClick={async (anchor) => {
+                if (!connectionStart) {
+                  // First click: start connection
+                  setConnectionStart({ shapeId: shape.id, anchor: String(anchor) });
+                } else if (connectionStart.shapeId === shape.id && connectionStart.anchor === anchor) {
+                  // Clicked same anchor: cancel
+                  setConnectionStart(null);
+                } else {
+                  // Second click: create connection
+                  try {
+                    // Ensure anchor values are valid strings
+                    const fromAnchor = String(connectionStart.anchor) as 'top' | 'right' | 'bottom' | 'left';
+                    const toAnchor = String(anchor) as 'top' | 'right' | 'bottom' | 'left';
+                    
+                    await addConnection({
+                      fromShapeId: connectionStart.shapeId,
+                      fromAnchor: fromAnchor,
+                      toShapeId: shape.id,
+                      toAnchor: toAnchor,
+                      arrowType: 'end',
+                      stroke: '#000000',
+                      strokeWidth: 2,
+                      createdBy: currentUser?.uid || 'anonymous',
+                    });
+                  } catch (error) {
+                    console.error('Error creating connection:', error);
+                    toast.error('Failed to create connection');
+                  }
+                  setConnectionStart(null);
+                }
+              }}
+            />
+          ))}
+          
           {/* Transformer for resize and rotate */}
           <Transformer
             ref={transformerRef}
+            keepRatio={selectedShape ? ['process', 'decision', 'startEnd', 'document', 'database'].includes(selectedShape.type) : false}
             onTransform={() => {
               // For text shapes, prevent font scaling by keeping scale at 1 and adjusting width/height instead
               const node = selectedShapeRef.current;
@@ -1876,8 +2261,96 @@ const Canvas: React.FC = () => {
               );
             }
           })()}
+          
+          {/* Placement preview (ghost shape follows cursor) */}
+          {isPlacementMode && placementPreview && placementShapeType && (() => {
+            const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
+            const ghostProps = {
+              x: placementPreview.x,
+              y: placementPreview.y,
+              width: shapeSize.width,
+              height: shapeSize.height,
+              fill: "rgba(59, 130, 246, 0.2)", // Blue with low opacity
+              stroke: "rgb(59, 130, 246)", // Blue
+              strokeWidth: 2 / stageScale,
+              dash: [10 / stageScale, 5 / stageScale],
+              listening: false,
+              opacity: 0.6,
+            };
+            
+            // Render appropriate ghost shape based on type
+            if (placementShapeType === 'process') {
+              return (
+                <Rect
+                  {...ghostProps}
+                  cornerRadius={8}
+                />
+              );
+            } else if (placementShapeType === 'decision') {
+              // Diamond - render as rotated square
+              const centerX = ghostProps.x + ghostProps.width / 2;
+              const centerY = ghostProps.y + ghostProps.height / 2;
+              const size = Math.min(ghostProps.width, ghostProps.height);
+              return (
+                <Rect
+                  x={centerX - size / 2}
+                  y={centerY - size / 2}
+                  width={size}
+                  height={size}
+                  rotation={45}
+                  fill={ghostProps.fill}
+                  stroke={ghostProps.stroke}
+                  strokeWidth={ghostProps.strokeWidth}
+                  dash={ghostProps.dash}
+                  listening={false}
+                  opacity={ghostProps.opacity}
+                />
+              );
+            } else if (placementShapeType === 'startEnd') {
+              // Oval
+              return (
+                <KonvaCircle
+                  x={ghostProps.x + ghostProps.width / 2}
+                  y={ghostProps.y + ghostProps.height / 2}
+                  radiusX={ghostProps.width / 2}
+                  radiusY={ghostProps.height / 2}
+                  fill={ghostProps.fill}
+                  stroke={ghostProps.stroke}
+                  strokeWidth={ghostProps.strokeWidth}
+                  dash={ghostProps.dash}
+                  listening={false}
+                  opacity={ghostProps.opacity}
+                />
+              );
+            } else {
+              // document and database - just show as rectangle for ghost
+              return (
+                <Rect {...ghostProps} />
+              );
+            }
+          })()}
         </Layer>
       </Stage>
+
+      {/* Inline Text Editor - Show when double-clicking workflow shapes */}
+      {editingShapeId && (() => {
+        const editingShape = shapes.find(s => s.id === editingShapeId);
+        if (!editingShape) return null;
+        
+        return (
+          <InlineTextEditor
+            shape={editingShape}
+            stageScale={stageScale}
+            stageX={stagePos.x}
+            stageY={stagePos.y}
+            onSave={(text) => {
+              updateShape(editingShapeId, { text });
+              setEditingShapeId(null);
+            }}
+            onCancel={() => setEditingShapeId(null)}
+          />
+        );
+      })()}
 
       {/* Other users' cursors */}
       {Object.entries(cursors).map(([userId, cursor]) => {
@@ -1945,6 +2418,14 @@ const Canvas: React.FC = () => {
           <div className="text-sm">Click and drag to create • Press ESC to cancel</div>
         </div>
       )}
+      
+      {/* Placement Mode Indicator */}
+      {isPlacementMode && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 pointer-events-none">
+          <div className="text-lg font-bold">Placing {placementShapeType}</div>
+          <div className="text-sm">Click to place shape • Press ESC to cancel</div>
+        </div>
+      )}
 
       {/* Canvas Controls */}
       <CanvasControls
@@ -1962,6 +2443,8 @@ const Canvas: React.FC = () => {
         onClearAll={clearAll}
         isDrawingMode={isDrawingMode}
         drawingShapeType={drawingShapeType}
+        isPlacementMode={isPlacementMode}
+        placementShapeType={placementShapeType}
       />
 
       {/* AI Input */}

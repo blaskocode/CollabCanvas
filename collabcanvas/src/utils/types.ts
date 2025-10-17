@@ -275,6 +275,20 @@ export interface CanvasContextType {
   // Selection tools
   selectShapesByType: (shapeType: string) => void;
   selectShapesInLasso: (lassoPolygon: Array<{ x: number; y: number }>) => void;
+  // Component operations
+  createComponent: (name: string, description?: string) => Promise<string>; // Returns component ID
+  deleteComponent: (componentId: string) => Promise<void>;
+  updateComponent: (componentId: string, updates: ComponentUpdateData) => Promise<void>;
+  insertComponent: (componentId: string, position?: { x: number; y: number }) => Promise<void>; // Position optional, defaults to viewport center
+  components: Component[];
+  // Comment operations
+  createComment: (text: string, shapeId: string, position?: { x: number; y: number }, parentId?: string) => Promise<string>;
+  updateComment: (commentId: string, updates: CommentUpdateData) => Promise<void>;
+  deleteComment: (commentId: string) => Promise<void>;
+  resolveComment: (commentId: string) => Promise<void>;
+  unresolveComment: (commentId: string) => Promise<void>;
+  comments: Comment[];
+  getShapeComments: (shapeId: string) => Comment[];
 }
 
 // ============================================================================
@@ -289,6 +303,82 @@ export interface ColorPalette {
 }
 
 export type RecentColors = string[]; // Array of recently used hex colors (max 10)
+
+// ============================================================================
+// Component Types (Reusable Components/Symbols)
+// ============================================================================
+
+export interface Component {
+  id: string;
+  name: string;
+  description?: string;
+  thumbnail?: string; // Base64 data URL of component preview
+  shapes: Omit<Shape, 'id' | 'createdBy' | 'createdAt' | 'lastModifiedBy' | 'lastModifiedAt' | 'isLocked' | 'lockedBy' | 'lockedAt'>[]; // Serialized shapes
+  width: number; // Bounding box width
+  height: number; // Bounding box height
+  createdBy: string;
+  createdAt: number;
+  lastModifiedBy: string;
+  lastModifiedAt: number;
+  canvasId: string; // Canvas this component belongs to (global for now)
+}
+
+export interface ComponentCreateData {
+  name: string;
+  description?: string;
+  shapes: Omit<Shape, 'id' | 'createdBy' | 'createdAt' | 'lastModifiedBy' | 'lastModifiedAt' | 'isLocked' | 'lockedBy' | 'lockedAt'>[];
+  width: number;
+  height: number;
+  createdBy: string;
+  canvasId: string;
+}
+
+export interface ComponentUpdateData {
+  name?: string;
+  description?: string;
+  shapes?: Omit<Shape, 'id' | 'createdBy' | 'createdAt' | 'lastModifiedBy' | 'lastModifiedAt' | 'isLocked' | 'lockedBy' | 'lockedAt'>[];
+  width?: number;
+  height?: number;
+  lastModifiedBy: string;
+}
+
+// ============================================================================
+// Comment Types (Collaborative Comments/Annotations)
+// ============================================================================
+
+export interface Comment {
+  id: string;
+  shapeId: string; // Shape this comment is attached to
+  canvasId: string;
+  text: string;
+  createdBy: string;
+  createdByName: string; // Display name of creator
+  createdAt: number;
+  lastModifiedAt: number;
+  resolved: boolean;
+  resolvedBy?: string;
+  resolvedAt?: number;
+  x?: number; // Optional position (for visual indicator)
+  y?: number;
+  parentId?: string; // For threaded replies
+}
+
+export interface CommentCreateData {
+  shapeId: string;
+  canvasId: string;
+  text: string;
+  createdBy: string;
+  createdByName: string;
+  x?: number;
+  y?: number;
+  parentId?: string;
+}
+
+export interface CommentUpdateData {
+  text?: string;
+  resolved?: boolean;
+  resolvedBy?: string;
+}
 
 // ============================================================================
 // Konva Types (for canvas rendering)

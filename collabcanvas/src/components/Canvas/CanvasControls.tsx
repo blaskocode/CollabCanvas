@@ -25,6 +25,10 @@ interface CanvasControlsProps {
   onToggleGrid?: () => void;
   selectionMode?: 'box' | 'lasso';
   onToggleSelectionMode?: () => void;
+  showComponentLibrary?: boolean;
+  onToggleComponentLibrary?: () => void;
+  showCommentsPanel?: boolean;
+  onToggleCommentsPanel?: () => void;
 }
 
 /**
@@ -55,6 +59,10 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
   onToggleGrid,
   selectionMode = 'box',
   onToggleSelectionMode,
+  showComponentLibrary = false,
+  onToggleComponentLibrary,
+  showCommentsPanel = false,
+  onToggleCommentsPanel,
 }) => {
   const canZoomIn = zoom < MAX_ZOOM;
   const canZoomOut = zoom > minZoom;
@@ -459,6 +467,54 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
               <span>Lasso Select</span>
             </>
           )}
+        </button>
+      )}
+      
+      {/* Component Library Toggle */}
+      {onToggleComponentLibrary && (
+        <button
+          onClick={onToggleComponentLibrary}
+          className={`w-full py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-2 ${
+            showComponentLibrary
+              ? 'bg-gradient-to-r from-purple-600 to-pink-700 text-white'
+              : 'bg-gradient-to-r from-purple-100 to-pink-100 hover:from-purple-200 hover:to-pink-200 text-purple-700'
+          }`}
+          title="Toggle Component Library (C)"
+          aria-label="Toggle component library"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+            />
+          </svg>
+          <span>Components</span>
+        </button>
+      )}
+      
+      {/* Comments Panel Toggle */}
+      {onToggleCommentsPanel && (
+        <button
+          onClick={onToggleCommentsPanel}
+          className={`w-full py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-2 ${
+            showCommentsPanel
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white'
+              : 'bg-gradient-to-r from-blue-100 to-indigo-100 hover:from-blue-200 hover:to-indigo-200 text-blue-700'
+          }`}
+          title="Toggle Comments Panel (M)"
+          aria-label="Toggle comments panel"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+            />
+          </svg>
+          <span>Comments</span>
         </button>
       )}
 

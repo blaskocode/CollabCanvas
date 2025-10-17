@@ -22,7 +22,21 @@ import {
 } from '../services/connections';
 import { serializeShapes, calculatePasteOffset, applyOffsetToShapes, isClipboardDataValid } from '../utils/clipboard';
 import { exportCanvas as exportCanvasUtil } from '../utils/export';
-import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection } from '../utils/types';
+import {
+  createComponent as createComponentService,
+  deleteComponent as deleteComponentService,
+  updateComponent as updateComponentService,
+  subscribeToComponents
+} from '../services/components';
+import {
+  createComment as createCommentService,
+  updateComment as updateCommentService,
+  deleteComment as deleteCommentService,
+  resolveComment as resolveCommentService,
+  unresolveComment as unresolveCommentService,
+  subscribeToComments
+} from '../services/comments';
+import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection, Component, ComponentUpdateData, Comment, CommentUpdateData } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
 import { doc, collection } from 'firebase/firestore';
@@ -44,6 +58,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   
   // Grid snapping
   const [gridEnabled, setGridEnabled] = useState(false);
+  
+  // Components state
+  const [components, setComponents] = useState<Component[]>([]);
+  
+  // Comments state
+  const [comments, setComments] = useState<Comment[]>([]);
   
   // Clipboard for copy/cut/paste
   const { clipboardData, setClipboardData, incrementPasteCount, resetPasteCount } = useClipboard();
@@ -98,6 +118,22 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Update ref
     prevShapesRef.current = currentShapeIds;
   }, [shapes, currentUser, history]);
+  
+  // Subscribe to components
+  useEffect(() => {
+    if (!authLoading) {
+      const unsubscribe = subscribeToComponents(GLOBAL_CANVAS_ID, setComponents);
+      return () => unsubscribe();
+    }
+  }, [authLoading]);
+  
+  // Subscribe to comments
+  useEffect(() => {
+    if (!authLoading) {
+      const unsubscribe = subscribeToComments(GLOBAL_CANVAS_ID, setComments);
+      return () => unsubscribe();
+    }
+  }, [authLoading]);
 
   /**
    * Add a new shape to the canvas
@@ -1352,6 +1388,200 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
+  /**
+   * Create a component from selected shapes
+   */
+  const createComponent = async (name: string, description?: string): Promise<string> => {
+    if (!currentUser || selectedIds.length === 0) {
+      throw new Error('No shapes selected or user not authenticated');
+    }
+
+    // Get selected shapes
+    const selectedShapes = shapes.filter(s => selectedIds.includes(s.id));
+    if (selectedShapes.length === 0) {
+      throw new Error('Selected shapes not found');
+    }
+
+    // Calculate bounding box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selectedShapes.forEach(shape => {
+      if (shape.type === 'circle' && shape.radius) {
+        minX = Math.min(minX, shape.x - shape.radius);
+        minY = Math.min(minY, shape.y - shape.radius);
+        maxX = Math.max(maxX, shape.x + shape.radius);
+        maxY = Math.max(maxY, shape.y + shape.radius);
+      } else {
+        const width = shape.width || 100;
+        const height = shape.height || 100;
+        minX = Math.min(minX, shape.x);
+        minY = Math.min(minY, shape.y);
+        maxX = Math.max(maxX, shape.x + width);
+        maxY = Math.max(maxY, shape.y + height);
+      }
+    });
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    // Serialize shapes relative to the bounding box origin
+    const serializedShapes = serializeShapes(selectedShapes).map(shape => ({
+      ...shape,
+      x: shape.x - minX,
+      y: shape.y - minY,
+    }));
+
+    // Create component
+    const componentId = await createComponentService({
+      name,
+      description,
+      shapes: serializedShapes as any,
+      width,
+      height,
+      createdBy: currentUser.uid,
+      canvasId: GLOBAL_CANVAS_ID,
+    });
+
+    return componentId;
+  };
+
+  /**
+   * Delete a component
+   */
+  const deleteComponent = async (componentId: string): Promise<void> => {
+    await deleteComponentService(componentId);
+  };
+
+  /**
+   * Update a component
+   */
+  const updateComponent = async (componentId: string, updates: ComponentUpdateData): Promise<void> => {
+    if (!currentUser) return;
+    await updateComponentService(componentId, {
+      ...updates,
+      lastModifiedBy: currentUser.uid,
+    });
+  };
+
+  /**
+   * Insert a component instance at viewport center
+   */
+  const insertComponent = async (componentId: string, position?: { x: number; y: number }): Promise<void> => {
+    if (!currentUser) return;
+
+    const component = components.find(c => c.id === componentId);
+    if (!component) {
+      throw new Error('Component not found');
+    }
+
+    const stage = stageRef?.current;
+    if (!stage) {
+      console.error('Cannot insert component: stage ref not available');
+      return;
+    }
+
+    // Calculate viewport center in canvas coordinates (unless position explicitly provided)
+    let insertX: number, insertY: number;
+    
+    if (position) {
+      insertX = position.x;
+      insertY = position.y;
+    } else {
+      const stageWidth = stage.width();
+      const stageHeight = stage.height();
+      const stageX = stage.x();
+      const stageY = stage.y();
+      const scale = stage.scaleX(); // Assume uniform scale
+
+      // Transform viewport center to canvas coordinates
+      const viewportCenterCanvasX = (-stageX + stageWidth / 2) / scale;
+      const viewportCenterCanvasY = (-stageY + stageHeight / 2) / scale;
+
+      // Center the component at viewport center (accounting for component dimensions)
+      insertX = viewportCenterCanvasX - component.width / 2;
+      insertY = viewportCenterCanvasY - component.height / 2;
+    }
+
+    // Create shapes from component template
+    const newShapeIds: string[] = [];
+    for (const shapeTemplate of component.shapes) {
+      const newId = doc(collection(db, 'canvases')).id;
+      
+      const newShape: ShapeCreateData = {
+        ...shapeTemplate,
+        id: newId,
+        x: insertX + shapeTemplate.x,
+        y: insertY + shapeTemplate.y,
+        createdBy: currentUser.uid,
+      };
+
+      await createShapeService(GLOBAL_CANVAS_ID, newShape);
+      newShapeIds.push(newId);
+    }
+
+    // Select the newly created shapes
+    setTimeout(() => {
+      selectMultipleShapes(newShapeIds);
+    }, 100);
+  };
+
+  /**
+   * Create a comment on a shape
+   */
+  const createComment = async (text: string, shapeId: string, position?: { x: number; y: number }, parentId?: string): Promise<string> => {
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    const commentId = await createCommentService({
+      text,
+      shapeId,
+      canvasId: GLOBAL_CANVAS_ID,
+      createdBy: currentUser.uid,
+      createdByName: currentUser.displayName || currentUser.email || 'Anonymous',
+      x: position?.x,
+      y: position?.y,
+      parentId,
+    });
+
+    return commentId;
+  };
+
+  /**
+   * Update a comment
+   */
+  const updateComment = async (commentId: string, updates: CommentUpdateData): Promise<void> => {
+    await updateCommentService(commentId, updates);
+  };
+
+  /**
+   * Delete a comment
+   */
+  const deleteComment = async (commentId: string): Promise<void> => {
+    await deleteCommentService(commentId);
+  };
+
+  /**
+   * Resolve a comment
+   */
+  const resolveComment = async (commentId: string): Promise<void> => {
+    if (!currentUser) return;
+    await resolveCommentService(commentId, currentUser.uid);
+  };
+
+  /**
+   * Unresolve a comment
+   */
+  const unresolveComment = async (commentId: string): Promise<void> => {
+    await unresolveCommentService(commentId);
+  };
+
+  /**
+   * Get all comments for a specific shape
+   */
+  const getShapeComments = (shapeId: string): Comment[] => {
+    return comments.filter(comment => comment.shapeId === shapeId);
+  };
+
   const value: CanvasContextType = {
     shapes,
     groups,
@@ -1401,6 +1631,18 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     toggleGrid,
     selectShapesByType,
     selectShapesInLasso,
+    createComponent,
+    deleteComponent,
+    updateComponent,
+    insertComponent,
+    components,
+    createComment,
+    updateComment,
+    deleteComment,
+    resolveComment,
+    unresolveComment,
+    comments,
+    getShapeComments,
   };
 
   return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;

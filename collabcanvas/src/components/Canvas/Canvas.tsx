@@ -9,6 +9,8 @@ import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN, GLOBAL_CANVAS_ID } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
+import ComponentLibrary from './ComponentLibrary';
+import CommentsPanel from './CommentsPanel';
 import PropertyPanel from './PropertyPanel';
 import AlignmentTools from './AlignmentTools';
 import AIInput from './AIInput';
@@ -53,6 +55,15 @@ const Canvas: React.FC = () => {
   
   // Selection mode: 'box' or 'lasso'
   const [selectionMode, setSelectionMode] = useState<'box' | 'lasso'>('box');
+  
+  // Component library state
+  const [showComponentLibrary, setShowComponentLibrary] = useState(false);
+  
+  // Comments panel state
+  const [showCommentsPanel, setShowCommentsPanel] = useState(false);
+  
+  // Track which panel is on top (for z-index management)
+  const [topPanel, setTopPanel] = useState<'components' | 'comments' | null>(null);
   
   // Box select state
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -387,6 +398,60 @@ const Canvas: React.FC = () => {
         return;
       }
 
+      // C: Toggle component library (mutually exclusive with comments)
+      if (e.key === 'c' || e.key === 'C') {
+        // Don't trigger if we're in a text input or if Ctrl/Cmd is pressed (for copy)
+        if ((e.target as HTMLElement).tagName === 'INPUT' || 
+            (e.target as HTMLElement).tagName === 'TEXTAREA' ||
+            e.ctrlKey || e.metaKey) {
+          return;
+        }
+        e.preventDefault();
+        
+        // If component library is already open, close it
+        if (showComponentLibrary) {
+          setShowComponentLibrary(false);
+          setTopPanel(null);
+          toast.success('Component library hidden');
+        } else {
+          // Open component library and close comments if open
+          setShowComponentLibrary(true);
+          if (showCommentsPanel) {
+            setShowCommentsPanel(false);
+          }
+          setTopPanel('components');
+          toast.success('Component library shown');
+        }
+        return;
+      }
+
+      // M: Toggle comments panel (mutually exclusive with components)
+      if (e.key === 'm' || e.key === 'M') {
+        // Don't trigger if we're in a text input or if Ctrl/Cmd is pressed
+        if ((e.target as HTMLElement).tagName === 'INPUT' || 
+            (e.target as HTMLElement).tagName === 'TEXTAREA' ||
+            e.ctrlKey || e.metaKey) {
+          return;
+        }
+        e.preventDefault();
+        
+        // If comments panel is already open, close it
+        if (showCommentsPanel) {
+          setShowCommentsPanel(false);
+          setTopPanel(null);
+          toast.success('Comments panel hidden');
+        } else {
+          // Open comments panel and close components if open
+          setShowCommentsPanel(true);
+          if (showComponentLibrary) {
+            setShowComponentLibrary(false);
+          }
+          setTopPanel('comments');
+          toast.success('Comments panel shown');
+        }
+        return;
+      }
+
       // Ctrl+G: Group selected shapes
       if ((e.ctrlKey || e.metaKey) && e.key === 'g' && !e.shiftKey) {
         e.preventDefault();
@@ -506,7 +571,7 @@ const Canvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser, toggleGrid, gridEnabled, copyShapes, cutShapes, pasteShapes, hasClipboardData]);
+  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser, toggleGrid, gridEnabled, copyShapes, cutShapes, pasteShapes, hasClipboardData, selectionMode, showComponentLibrary, showCommentsPanel]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges
@@ -2714,7 +2779,57 @@ const Canvas: React.FC = () => {
         onToggleGrid={toggleGrid}
         selectionMode={selectionMode}
         onToggleSelectionMode={() => setSelectionMode(prev => prev === 'box' ? 'lasso' : 'box')}
+        showComponentLibrary={showComponentLibrary}
+        onToggleComponentLibrary={() => {
+          // Mutually exclusive panels
+          if (showComponentLibrary) {
+            setShowComponentLibrary(false);
+            setTopPanel(null);
+          } else {
+            setShowComponentLibrary(true);
+            if (showCommentsPanel) {
+              setShowCommentsPanel(false);
+            }
+            setTopPanel('components');
+          }
+        }}
+        showCommentsPanel={showCommentsPanel}
+        onToggleCommentsPanel={() => {
+          // Mutually exclusive panels
+          if (showCommentsPanel) {
+            setShowCommentsPanel(false);
+            setTopPanel(null);
+          } else {
+            setShowCommentsPanel(true);
+            if (showComponentLibrary) {
+              setShowComponentLibrary(false);
+            }
+            setTopPanel('comments');
+          }
+        }}
       />
+
+      {/* Component Library */}
+      {showComponentLibrary && (
+        <ComponentLibrary 
+          onClose={() => {
+            setShowComponentLibrary(false);
+            setTopPanel(null);
+          }}
+          zIndex={topPanel === 'components' ? 50 : 40}
+        />
+      )}
+
+      {/* Comments Panel */}
+      {showCommentsPanel && (
+        <CommentsPanel 
+          onClose={() => {
+            setShowCommentsPanel(false);
+            setTopPanel(null);
+          }}
+          zIndex={topPanel === 'comments' ? 50 : 40}
+        />
+      )}
 
       {/* AI Input */}
       <AIInput />

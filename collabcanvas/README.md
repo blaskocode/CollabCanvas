@@ -13,24 +13,51 @@ Open in 2-3 browser windows to see real-time collaboration in action!
 
 ## 🚀 Features
 
-### MVP Features (Phase 1)
+### Core Collaboration Features
 - ✅ **User Authentication** - Email/Password and Google Sign-In
-- ✅ **Real-Time Collaboration** - Changes sync across all users in <100ms
-- ✅ **Canvas Workspace** - 5000x5000px canvas with pan and zoom
-- ✅ **Shape Creation** - Create and manipulate rectangles (MVP)
-- ✅ **Object Locking** - First user to drag locks the object
+- ✅ **Real-Time Synchronization** - Changes sync across all users in <100ms
+- ✅ **Canvas Workspace** - 5000x5000px canvas with pan (Space + Drag) and zoom (Scroll)
+- ✅ **Object Locking** - First user to drag locks the object, preventing conflicts
 - ✅ **Multiplayer Cursors** - See other users' cursors with names and colors
 - ✅ **Presence Awareness** - Know who's online and collaborating
-- ✅ **Persistent State** - All work saved to Firebase
-- ✅ **Offline Support** - Works offline with automatic sync when reconnected
+- ✅ **Persistent State** - All work saved to Firebase with offline support
+- ✅ **Conflict Resolution** - Hybrid lock-based and last-write-wins strategy
 
-### Coming Soon (Phase 2+)
-- Multiple shape types (circles, text, lines)
-- Shape styling (colors, borders, effects)
-- Resize and rotate functionality
-- Multi-select and grouping
-- Undo/redo system
-- AI agent integration
+### Shape & Drawing Tools
+- ✅ **Multiple Shape Types** - Rectangles, circles, text, lines, workflow shapes (process boxes, decision diamonds, start/end ovals, documents, databases)
+- ✅ **Drawing Modes** - Draw mode (click & drag) and placement mode (click-to-place)
+- ✅ **Shape Styling** - Colors, borders, opacity, text formatting
+- ✅ **Resize & Rotate** - Transform shapes with handles
+- ✅ **Shape Connections** - Visual connectors between workflow shapes with anchor points
+
+### Advanced Editing
+- ✅ **Multi-Select & Grouping** - Select multiple shapes, create groups, nested grouping
+- ✅ **Undo/Redo System** - Full history with Ctrl+Z/Ctrl+Y
+- ✅ **Copy/Cut/Paste** - Clipboard operations with Ctrl+C/X/V, paste at viewport center
+- ✅ **Duplicate** - Quick duplicate with Ctrl+D
+- ✅ **Alignment Tools** - Align left/center/right/top/middle/bottom, distribute evenly
+- ✅ **Z-Index Management** - Bring to front/back, move forward/backward
+- ✅ **Layer Panel** - Visual hierarchy with drag-to-reorder
+
+### Selection & Organization
+- ✅ **Selection Tools** - Box select (default) and lasso select (L key to toggle)
+- ✅ **Select All of Type** - Quick select all shapes of same type
+- ✅ **Grid & Smart Guides** - Visual grid (Ctrl+'), snap-to-grid, smart alignment guides
+- ✅ **Component System** - Create reusable components from selections, insert as instances
+- ✅ **Comments & Annotations** - Add threaded comments to shapes, resolve/unresolve threads
+
+### User Experience
+- ✅ **Color Picker** - Full HSV/RGB color picker with recent colors and saved palettes
+- ✅ **Export Canvas** - Export as PNG (full canvas, visible area, or selection)
+- ✅ **Property Panel** - Edit shape properties (position, size, color, text)
+- ✅ **Context Menu** - Right-click menu with common actions
+- ✅ **Keyboard Shortcuts** - Comprehensive keyboard support (see KEYBOARD_SHORTCUTS.md)
+- ✅ **Toast Notifications** - User-friendly feedback for all actions
+
+### AI Integration
+- ✅ **AI Canvas Agent** - Natural language canvas operations powered by OpenAI GPT-4
+- ✅ **Workflow Generation** - Generate complete flowcharts from descriptions
+- ✅ **Smart Layouts** - AI-powered automatic layout and arrangement
 
 ## 🛠 Tech Stack
 
@@ -184,10 +211,21 @@ To test real-time collaboration features:
 
 ### Keyboard Shortcuts
 
-- **Delete/Backspace**: Delete selected shape
-- **Escape**: Deselect current selection
-- **Mouse Wheel**: Zoom in/out
-- **Drag Canvas**: Pan the canvas (when not dragging a shape)
+CollabCanvas includes comprehensive keyboard support for efficient workflow. See [KEYBOARD_SHORTCUTS.md](./KEYBOARD_SHORTCUTS.md) for the complete list.
+
+**Most Common:**
+- **Ctrl+C/X/V** - Copy/Cut/Paste
+- **Ctrl+D** - Duplicate
+- **Ctrl+Z/Y** - Undo/Redo
+- **Delete** - Delete selected shape(s)
+- **Arrow Keys** - Move selected shape(s) by 1px
+- **Shift+Arrow** - Move by 10px
+- **Space+Drag** - Pan canvas
+- **Mouse Wheel** - Zoom in/out
+- **L** - Toggle lasso/box selection
+- **C** - Toggle component library
+- **M** - Toggle comments panel
+- **Ctrl+'** - Toggle grid
 
 ## 📁 Project Structure
 

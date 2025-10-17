@@ -8,9 +8,15 @@ interface ContextMenuProps {
   onSendBackward: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onSelectAllOfType?: () => void;
+  shapeType?: string;
   isLockedByOther?: boolean;
+  hasClipboardData?: boolean;
 }
 
 /**
@@ -26,9 +32,15 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onSendBackward,
   onBringToFront,
   onSendToBack,
+  onCopy,
+  onCut,
+  onPaste,
   onDuplicate,
   onDelete,
+  onSelectAllOfType,
+  shapeType,
   isLockedByOther = false,
+  hasClipboardData = false,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +118,29 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       <MenuItem onClick={onSendToBack} disabled={isLockedByOther}>
         Send to Back
       </MenuItem>
+
+      <Divider />
+
+      {/* Clipboard Actions */}
+      <MenuItem onClick={onCopy} disabled={isLockedByOther} shortcut="Ctrl+C">
+        Copy
+      </MenuItem>
+      <MenuItem onClick={onCut} disabled={isLockedByOther} shortcut="Ctrl+X">
+        Cut
+      </MenuItem>
+      <MenuItem onClick={onPaste} disabled={!hasClipboardData} shortcut="Ctrl+V">
+        Paste
+      </MenuItem>
+      
+      {/* Selection Actions */}
+      {onSelectAllOfType && shapeType && (
+        <>
+          <Divider />
+          <MenuItem onClick={onSelectAllOfType}>
+            Select All {shapeType.charAt(0).toUpperCase() + shapeType.slice(1)}s
+          </MenuItem>
+        </>
+      )}
 
       <Divider />
 

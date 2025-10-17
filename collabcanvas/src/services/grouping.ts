@@ -15,7 +15,7 @@ import { updateShape, createShape } from './canvas';
  * Handles all group-related operations including nested groups
  */
 
-const CANVAS_COLLECTION = 'canvas';
+const CANVAS_COLLECTION = 'canvases';
 
 /**
  * Calculate bounding box for a set of shapes
@@ -112,7 +112,7 @@ export const createGroup = async (
     const bounds = calculateBoundingBox(shapesToGroup);
     
     // Generate new group ID using collection reference
-    const groupId = doc(collection(db, 'canvas')).id;
+    const groupId = doc(collection(db, 'canvases')).id;
     
     const now = Timestamp.now();
     
@@ -352,7 +352,7 @@ export const duplicateGroup = async (
         // Duplicate shape
         const shape = allShapes.find(s => s.id === memberId);
         if (shape) {
-          const newId = doc(collection(db, 'canvas')).id;
+          const newId = doc(collection(db, 'canvases')).id;
           idMap[memberId] = newId;
 
           const { id: _id, createdAt, createdBy, lastModifiedAt, lastModifiedBy, isLocked, lockedBy, lockedAt, groupId: _groupId, ...shapeData } = shape;
@@ -373,7 +373,7 @@ export const duplicateGroup = async (
     await new Promise(resolve => setTimeout(resolve, 200));
 
     // Create new group with duplicated members
-    const newGroupId = doc(collection(db, 'canvas')).id;
+    const newGroupId = doc(collection(db, 'canvases')).id;
     const newShapeIds = group.shapeIds.map(id => idMap[id] || id);
 
     // Fetch updated shapes to calculate correct bounding box

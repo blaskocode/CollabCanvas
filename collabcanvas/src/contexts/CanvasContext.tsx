@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useRef, useEffect } from 'r
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
+import { useClipboard } from './ClipboardContext';
 import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService, clearAllShapes as clearAllShapesService, restoreAllShapes as restoreAllShapesService, deleteMultipleShapes as deleteMultipleShapesService } from '../services/canvas';
 import { 
   createGroup as createGroupService, 
@@ -19,6 +20,8 @@ import {
   getShapeConnections as getShapeConnectionsService,
   deleteShapeConnections
 } from '../services/connections';
+import { serializeShapes, calculatePasteOffset, applyOffsetToShapes, isClipboardDataValid } from '../utils/clipboard';
+import { exportCanvas as exportCanvasUtil } from '../utils/export';
 import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
@@ -38,6 +41,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  
+  // Grid snapping
+  const [gridEnabled, setGridEnabled] = useState(false);
+  
+  // Clipboard for copy/cut/paste
+  const { clipboardData, setClipboardData, incrementPasteCount, resetPasteCount } = useClipboard();
   
   // History for undo/redo
   const history = useHistory();
@@ -337,7 +346,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     
     // Generate new ID for the duplicated shape
-    const newId = doc(collection(db, 'canvas')).id;
+    const newId = doc(collection(db, 'canvases')).id;
     
     // Create a copy with 20px offset, excluding metadata fields
     const { id: _id, createdAt, createdBy, lastModifiedAt, lastModifiedBy, isLocked, lockedBy, lockedAt, ...shapeData } = shape;
@@ -1130,6 +1139,219 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
+  /**
+   * Copy selected shapes to clipboard
+   * 
+   * @param shapeIds - Array of shape IDs to copy
+   */
+  const copyShapes = (shapeIds: string[]): void => {
+    if (shapeIds.length === 0) return;
+    
+    // Get the shapes to copy
+    const shapesToCopy = shapes.filter(s => shapeIds.includes(s.id));
+    
+    if (shapesToCopy.length === 0) return;
+    
+    // Serialize shapes (removes metadata)
+    const serialized = serializeShapes(shapesToCopy);
+    
+    // Store in clipboard
+    setClipboardData({
+      shapes: serialized as Shape[],
+      timestamp: Date.now(),
+      pasteCount: 0,
+    });
+    
+    // Reset paste count when copying new shapes
+    resetPasteCount();
+  };
+
+  /**
+   * Cut selected shapes (copy + delete)
+   * 
+   * @param shapeIds - Array of shape IDs to cut
+   */
+  const cutShapes = async (shapeIds: string[]): Promise<void> => {
+    if (shapeIds.length === 0) return;
+    
+    // Check if any shapes are locked by another user
+    const lockedShapes = shapes.filter(
+      s => shapeIds.includes(s.id) && s.isLocked && s.lockedBy !== currentUser?.uid
+    );
+    
+    if (lockedShapes.length > 0) {
+      console.warn('Cannot cut locked shapes');
+      return;
+    }
+    
+    // First copy to clipboard
+    copyShapes(shapeIds);
+    
+    // Then delete the shapes
+    await deleteMultipleShapes(shapeIds);
+  };
+
+  /**
+   * Paste shapes from clipboard
+   * Creates new shapes at viewport center with incremental offset
+   */
+  const pasteShapes = async (): Promise<void> => {
+    if (!clipboardData || !isClipboardDataValid(clipboardData) || !currentUser) {
+      return;
+    }
+    
+    const stage = stageRef?.current;
+    if (!stage) {
+      console.error('Cannot paste: stage ref not available');
+      return;
+    }
+    
+    // Calculate viewport center in canvas coordinates
+    const stageWidth = stage.width();
+    const stageHeight = stage.height();
+    const stageX = stage.x();
+    const stageY = stage.y();
+    const scale = stage.scaleX(); // Assume uniform scale
+    
+    // Transform viewport center to canvas coordinates
+    const viewportCenterCanvasX = (-stageX + stageWidth / 2) / scale;
+    const viewportCenterCanvasY = (-stageY + stageHeight / 2) / scale;
+    
+    // Calculate the center of the original shapes
+    const originalShapes = clipboardData.shapes;
+    if (originalShapes.length === 0) return;
+    
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    originalShapes.forEach(shape => {
+      const width = shape.width || 100;
+      const height = shape.height || 100;
+      minX = Math.min(minX, shape.x);
+      minY = Math.min(minY, shape.y);
+      maxX = Math.max(maxX, shape.x + width);
+      maxY = Math.max(maxY, shape.y + height);
+    });
+    
+    const originalCenterX = (minX + maxX) / 2;
+    const originalCenterY = (minY + maxY) / 2;
+    
+    // Calculate offset to move shapes from original center to viewport center
+    // Plus incremental offset for multiple pastes
+    const incrementalOffset = calculatePasteOffset(clipboardData.pasteCount);
+    const offsetX = viewportCenterCanvasX - originalCenterX + incrementalOffset.x;
+    const offsetY = viewportCenterCanvasY - originalCenterY + incrementalOffset.y;
+    
+    // Apply offset to shapes
+    const offsetShapes = applyOffsetToShapes(clipboardData.shapes as any, { x: offsetX, y: offsetY });
+    
+    // Create new shapes
+    const newShapeIds: string[] = [];
+    
+    for (const shapeData of offsetShapes) {
+      const newId = doc(collection(db, 'canvases')).id;
+      
+      const newShape: ShapeCreateData = {
+        ...shapeData,
+        id: newId,
+        createdBy: currentUser.uid,
+      };
+      
+      await createShapeService(GLOBAL_CANVAS_ID, newShape);
+      newShapeIds.push(newId);
+    }
+    
+    // Increment paste count for next paste
+    incrementPasteCount();
+    
+    // Select the newly pasted shapes
+    setTimeout(() => {
+      selectMultipleShapes(newShapeIds);
+    }, 100);
+    
+    // Record the creation in history (skip if in undo/redo)
+    if (!isPerformingHistoryAction.current) {
+      // Wait for Firestore to sync
+      setTimeout(() => {
+        const createdShapes = shapes.filter(s => newShapeIds.includes(s.id));
+        if (createdShapes.length > 0) {
+          const after: Record<string, Partial<Shape>> = {};
+          createdShapes.forEach(shape => {
+            after[shape.id] = { ...shape };
+          });
+          
+          history.recordAction({
+            type: 'create',
+            shapesAffected: newShapeIds,
+            before: {},
+            after,
+            timestamp: Date.now(),
+            userId: currentUser.uid,
+          });
+        }
+      }, 200);
+    }
+  };
+
+  /**
+   * Export canvas as PNG or SVG
+   * 
+   * @param format - Export format (png or svg)
+   * @param exportType - Type of export (fullCanvas, visibleArea, selection)
+   */
+  const exportCanvas = (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection'): void => {
+    const stage = stageRef?.current;
+    
+    if (!stage) {
+      console.error('Cannot export: stage ref not available');
+      return;
+    }
+    
+    try {
+      if (exportType === 'selection' && selectedIds.length === 0) {
+        console.warn('No shapes selected for export');
+        return;
+      }
+      
+      exportCanvasUtil(stage, {
+        format,
+        exportType,
+        quality: 1,
+        scale: 2,
+        selectedShapeIds: exportType === 'selection' ? selectedIds : undefined,
+      });
+    } catch (error) {
+      console.error('Export error:', error);
+    }
+  };
+
+  /**
+   * Toggle grid snapping on/off
+   */
+  const toggleGrid = (): void => {
+    setGridEnabled(prev => !prev);
+  };
+
+  /**
+   * Select all shapes of a specific type
+   */
+  const selectShapesByType = (shapeType: string): void => {
+    const shapeIds = shapes
+      .filter(shape => shape.type === shapeType)
+      .map(shape => shape.id);
+    selectMultipleShapes(shapeIds);
+  };
+
+  /**
+   * Select all shapes within a lasso polygon
+   */
+  const selectShapesInLasso = (lassoPolygon: Array<{ x: number; y: number }>): void => {
+    // Dynamically import selection utilities to avoid circular dependencies
+    import('../utils/selection').then(({ getShapesInLasso }) => {
+      const shapeIds = getShapesInLasso(shapes, lassoPolygon);
+      selectMultipleShapes(shapeIds);
+    });
+  };
+
   const value: CanvasContextType = {
     shapes,
     groups,
@@ -1170,6 +1392,15 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     canUndo: history.canUndo,
     canRedo: history.canRedo,
     clearAll,
+    copyShapes,
+    cutShapes,
+    pasteShapes,
+    hasClipboardData: isClipboardDataValid(clipboardData),
+    exportCanvas,
+    gridEnabled,
+    toggleGrid,
+    selectShapesByType,
+    selectShapesInLasso,
   };
 
   return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;

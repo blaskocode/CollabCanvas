@@ -42,6 +42,15 @@ export const AUTO_PAN_EDGE_THRESHOLD = 50; // Pixels from viewport edge to trigg
 export const AUTO_PAN_SPEED_MAX = 10; // Maximum pixels to pan per frame
 export const AUTO_PAN_SPEED_MIN = 2; // Minimum pixels to pan per frame
 
+// Grid and snapping configuration
+export const GRID_SIZE = 20; // Grid cell size in pixels (20px grid)
+export const SNAP_THRESHOLD = 8; // Snap distance threshold in pixels
+export const GUIDE_SNAP_THRESHOLD = 5; // Smart guide snap threshold in pixels
+export const GUIDE_COLOR = '#6366F1'; // Indigo color for smart guides
+export const GUIDE_OPACITY = 0.8; // Opacity for smart guides
+export const GRID_COLOR = '#E5E7EB'; // Gray color for grid lines
+export const GRID_OPACITY = 0.5; // Opacity for grid lines (visible but subtle)
+
 /**
  * User Color Palette
  * 10 distinct, high-contrast colors for user identification

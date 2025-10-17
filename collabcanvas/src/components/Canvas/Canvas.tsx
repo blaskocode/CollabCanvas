@@ -27,9 +27,12 @@ import Connector from './shapes/Connector';
 import { ShapeAnchors } from './AnchorPoint';
 import InlineTextEditor from './InlineTextEditor';
 import Cursor from '../Collaboration/Cursor';
+import GridOverlay from './GridOverlay';
+import SmartGuides from './SmartGuides';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Shape as ShapeType } from '../../utils/types';
 import { supportsAnchors } from '../../utils/anchor-snapping';
+import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../utils/snapping';
 
 /**
  * Canvas Component
@@ -38,7 +41,7 @@ import { supportsAnchors } from '../../utils/anchor-snapping';
  */
 const Canvas: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll } = useCanvasContext();
+  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
@@ -48,10 +51,18 @@ const Canvas: React.FC = () => {
   // Track last selected group for two-click selection
   const lastSelectedGroupRef = useRef<{ groupId: string; timestamp: number } | null>(null);
   
+  // Selection mode: 'box' or 'lasso'
+  const [selectionMode, setSelectionMode] = useState<'box' | 'lasso'>('box');
+  
   // Box select state
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [isBoxSelecting, setIsBoxSelecting] = useState(false);
   const justCompletedBoxSelect = useRef(false);
+  
+  // Lasso select state
+  const [isLassoDrawing, setIsLassoDrawing] = useState(false);
+  const [lassoPath, setLassoPath] = useState<Array<{ x: number; y: number }>>([]);
+  const justCompletedLassoSelect = useRef(false);
   
   // Panning state
   const [isPanning, setIsPanning] = useState(false);
@@ -108,6 +119,9 @@ const Canvas: React.FC = () => {
   
   // Connection mode state (click anchor to anchor)
   const [connectionStart, setConnectionStart] = useState<{ shapeId: string; anchor: string } | null>(null);
+
+  // Smart guides state for alignment during drag
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
 
   // Transformer refs for resize/rotate functionality
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -211,9 +225,52 @@ const Canvas: React.FC = () => {
           exitDrawingMode();
         } else if (isPlacementMode) {
           exitPlacementMode();
+        } else if (isLassoDrawing) {
+          // Cancel active lasso
+          setIsLassoDrawing(false);
+          setLassoPath([]);
         } else if (selectedIds.length > 0) {
           selectShape(null);
           lastSelectedGroupRef.current = null; // Reset two-click selection
+        }
+        return;
+      }
+
+      // Ctrl+C: Copy selected shape(s)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          copyShapes(selectedIds);
+          toast.success(`Copied ${selectedIds.length} shape${selectedIds.length > 1 ? 's' : ''}`);
+        }
+        return;
+      }
+
+      // Ctrl+X: Cut selected shape(s)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          const count = selectedIds.length;
+          cutShapes(selectedIds).then(() => {
+            toast.success(`Cut ${count} shape${count > 1 ? 's' : ''}`);
+          }).catch(err => {
+            console.error('Cut error:', err);
+            toast.error('Failed to cut shapes');
+          });
+        }
+        return;
+      }
+
+      // Ctrl+V: Paste from clipboard
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        if (hasClipboardData) {
+          pasteShapes().then(() => {
+            toast.success('Pasted shapes');
+          }).catch(err => {
+            console.error('Paste error:', err);
+            toast.error('Failed to paste shapes');
+          });
         }
         return;
       }
@@ -311,6 +368,22 @@ const Canvas: React.FC = () => {
         if (canRedo) {
           redo();
         }
+        return;
+      }
+
+      // Ctrl+': Toggle grid
+      if ((e.ctrlKey || e.metaKey) && e.key === "'") {
+        e.preventDefault();
+        toggleGrid();
+        toast.success(gridEnabled ? 'Grid hidden' : 'Grid shown');
+        return;
+      }
+
+      // L: Toggle between box and lasso selection modes
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setSelectionMode(prev => prev === 'box' ? 'lasso' : 'box');
+        toast.success(selectionMode === 'box' ? 'Lasso selection mode' : 'Box selection mode');
         return;
       }
 
@@ -433,7 +506,7 @@ const Canvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser]);
+  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser, toggleGrid, gridEnabled, copyShapes, cutShapes, pasteShapes, hasClipboardData]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges
@@ -808,7 +881,114 @@ const Canvas: React.FC = () => {
         layer?.batchDraw();
       }
     }
-  }, [stageRef, shapes]);
+    // Single shape drag - apply snapping and show smart guides
+    else {
+      const shape = shapes.find(s => s.id === shapeId);
+      if (!shape) return;
+      
+      let snappedX = x;
+      let snappedY = y;
+      
+      // Apply grid snapping if enabled
+      if (gridEnabled) {
+        const snapped = snapToGrid(x, y);
+        snappedX = snapped.x;
+        snappedY = snapped.y;
+      }
+      
+      // Find alignment guides with other shapes
+      const tempShape = { ...shape, x: snappedX, y: snappedY };
+      const otherShapes = shapes.filter(s => s.id !== shapeId && !selectedIds.includes(s.id));
+      const guides = findAlignmentGuides(tempShape as any, otherShapes);
+      
+      // Apply guide snapping - guides are already filtered by threshold in findAlignmentGuides
+      if (guides.length > 0) {
+        guides.forEach(guide => {
+          if (guide.type === 'vertical') {
+            // Snap X position to guide based on alignment type
+            if (guide.alignmentType === 'centerX') {
+              // Center alignment
+              if (shape.type === 'circle') {
+                // For circles, x is already the center
+                snappedX = guide.position;
+              } else {
+                // For rectangles, adjust to center
+                snappedX = guide.position - ((shape.width || 0) / 2);
+              }
+            } else if (guide.alignmentType === 'left') {
+              // Left edge alignment
+              if (shape.type === 'circle' && shape.radius) {
+                snappedX = guide.position + shape.radius;
+              } else {
+                snappedX = guide.position;
+              }
+            } else if (guide.alignmentType === 'right') {
+              // Right edge alignment
+              if (shape.type === 'circle' && shape.radius) {
+                snappedX = guide.position - shape.radius;
+              } else {
+                snappedX = guide.position - (shape.width || 0);
+              }
+            }
+          } else if (guide.type === 'horizontal') {
+            // Snap Y position to guide based on alignment type
+            if (guide.alignmentType === 'centerY') {
+              // Center alignment
+              if (shape.type === 'circle') {
+                // For circles, y is already the center
+                snappedY = guide.position;
+              } else {
+                // For rectangles, adjust to center
+                snappedY = guide.position - ((shape.height || 0) / 2);
+              }
+            } else if (guide.alignmentType === 'top') {
+              // Top edge alignment
+              if (shape.type === 'circle' && shape.radius) {
+                snappedY = guide.position + shape.radius;
+              } else {
+                snappedY = guide.position;
+              }
+            } else if (guide.alignmentType === 'bottom') {
+              // Bottom edge alignment
+              if (shape.type === 'circle' && shape.radius) {
+                snappedY = guide.position - shape.radius;
+              } else {
+                snappedY = guide.position - (shape.height || 0);
+              }
+            }
+          }
+        });
+        
+        // Update alignment guides state
+        setAlignmentGuides(guides);
+      } else {
+        // Clear alignment guides if no guides found
+        setAlignmentGuides([]);
+      }
+      
+      // Enforce canvas boundaries
+      if (shape.type === 'circle' && shape.radius) {
+        snappedX = Math.max(shape.radius, Math.min(CANVAS_WIDTH - shape.radius, snappedX));
+        snappedY = Math.max(shape.radius, Math.min(CANVAS_HEIGHT - shape.radius, snappedY));
+      } else {
+        snappedX = Math.max(0, Math.min(CANVAS_WIDTH - (shape.width || 0), snappedX));
+        snappedY = Math.max(0, Math.min(CANVAS_HEIGHT - (shape.height || 0), snappedY));
+      }
+      
+      // Update the node position
+      const node = shapeNodesRef.current.get(shapeId);
+      if (node) {
+        node.position({ x: snappedX, y: snappedY });
+        
+        // Redraw the layer
+        const stage = stageRef?.current;
+        if (stage) {
+          const layer = stage.findOne('Layer');
+          layer?.batchDraw();
+        }
+      }
+    }
+  }, [stageRef, shapes, gridEnabled, selectedIds]);
 
   /**
    * Update multiple shapes atomically in a single Firestore write
@@ -818,7 +998,7 @@ const Canvas: React.FC = () => {
   const updateShapesAtomic = async (updates: Map<string, { x: number; y: number }>, groupId?: string) => {
     if (updates.size === 0) return;
     
-    const canvasRef = doc(db, 'canvas', GLOBAL_CANVAS_ID);
+    const canvasRef = doc(db, 'canvases', GLOBAL_CANVAS_ID);
     const canvasSnap = await getDoc(canvasRef);
     const currentData = canvasSnap.data() as any;
     
@@ -911,6 +1091,9 @@ const Canvas: React.FC = () => {
     console.log('[handleShapeDragEnd]', shapeId, 'at', x, y);
     setIsDraggingShape(false);
     isDraggingShapeRef.current = false; // Allow panning again
+    
+    // Clear alignment guides
+    setAlignmentGuides([]);
     
     // Clear any pan state to prevent accidental panning
     setIsPanning(false);
@@ -1052,6 +1235,12 @@ const Canvas: React.FC = () => {
       return;
     }
     
+    // Don't deselect if we just completed a lasso selection
+    if (justCompletedLassoSelect.current) {
+      justCompletedLassoSelect.current = false;
+      return;
+    }
+    
     // Check if clicked on empty area (stage itself)
     const clickedOnEmpty = e.target === e.target.getStage();
     if (clickedOnEmpty) {
@@ -1115,10 +1304,27 @@ const Canvas: React.FC = () => {
       return;
     }
     
-    // Start box selection on single-click drag
+    // Start selection based on active mode
     if (e.evt.button === 0) {
-      setIsBoxSelecting(true);
-      setBoxSelect({ x1: canvasX, y1: canvasY, x2: canvasX, y2: canvasY });
+      if (selectionMode === 'lasso') {
+        if (!isLassoDrawing) {
+          // First click: start lasso
+          setIsLassoDrawing(true);
+          setLassoPath([{ x: canvasX, y: canvasY }]);
+        } else {
+          // Second click: complete lasso selection
+          if (lassoPath.length > 2) {
+            selectShapesInLasso(lassoPath);
+            justCompletedLassoSelect.current = true;
+          }
+          // Clear lasso state but stay in lasso mode
+          setIsLassoDrawing(false);
+          setLassoPath([]);
+        }
+      } else {
+        setIsBoxSelecting(true);
+        setBoxSelect({ x1: canvasX, y1: canvasY, x2: canvasX, y2: canvasY });
+      }
     }
   };
   
@@ -1155,6 +1361,25 @@ const Canvas: React.FC = () => {
       return;
     }
     
+    // Handle lasso drawing - add point to path as mouse moves
+    if (isLassoDrawing && selectionMode === 'lasso') {
+      setLassoPath(prev => {
+        if (prev.length === 0) return prev;
+        
+        // Only add point if it's at least 5px away from last point (reduce path complexity)
+        const lastPoint = prev[prev.length - 1];
+        const dx = canvasX - lastPoint.x;
+        const dy = canvasY - lastPoint.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance >= 5) {
+          return [...prev, { x: canvasX, y: canvasY }];
+        }
+        return prev;
+      });
+      return;
+    }
+    
     // Handle panning (but not if dragging a shape)
     if (isPanning && panStartRef.current && !isDraggingShapeRef.current) {
       const dx = pos.x - panStartRef.current.x;
@@ -1175,7 +1400,7 @@ const Canvas: React.FC = () => {
   };
   
   /**
-   * Handle stage mouse up - complete box select or drawing
+   * Handle stage mouse up - complete box select or drawing (lasso uses click-to-end)
    */
   const handleStageMouseUp = async () => {
     // Handle drawing completion
@@ -2073,7 +2298,19 @@ const Canvas: React.FC = () => {
         }}
       >
         <Layer>
-          {/* Background grid or color can be added here */}
+          {/* White Background */}
+          <Rect
+            x={0}
+            y={0}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            fill="white"
+            listening={false}
+          />
+          
+          {/* Grid Overlay */}
+          <GridOverlay visible={gridEnabled} />
+          
           {/* Render all shapes sorted by zIndex */}
           {sortedShapes.map((shape) => renderShapeByType(shape, isSelected(shape.id)))}
           
@@ -2163,6 +2400,11 @@ const Canvas: React.FC = () => {
             />
           ))}
           
+          {/* Smart Guides for alignment during drag */}
+          {alignmentGuides.length > 0 && (
+            <SmartGuides guides={alignmentGuides} />
+          )}
+          
           {/* Transformer for resize and rotate */}
           <Transformer
             ref={transformerRef}
@@ -2205,6 +2447,19 @@ const Canvas: React.FC = () => {
               strokeWidth={2 / stageScale}
               dash={[10 / stageScale, 5 / stageScale]}
               listening={false}
+            />
+          )}
+          
+          {/* Lasso selection visualization */}
+          {isLassoDrawing && lassoPath.length > 0 && (
+            <KonvaLine
+              points={lassoPath.flatMap(point => [point.x, point.y])}
+              stroke="rgb(147, 51, 234)" // Purple color
+              strokeWidth={2 / stageScale}
+              fill="rgba(147, 51, 234, 0.1)"
+              closed={false}
+              listening={false}
+              dash={[5 / stageScale, 5 / stageScale]}
             />
           )}
           
@@ -2441,10 +2696,24 @@ const Canvas: React.FC = () => {
         canUndo={canUndo}
         canRedo={canRedo}
         onClearAll={clearAll}
+        onExport={(format, exportType) => {
+          try {
+            exportCanvas(format, exportType);
+            toast.success(`Exported as ${format.toUpperCase()}`);
+          } catch (err) {
+            console.error('Export error:', err);
+            toast.error('Failed to export canvas');
+          }
+        }}
         isDrawingMode={isDrawingMode}
         drawingShapeType={drawingShapeType}
         isPlacementMode={isPlacementMode}
         placementShapeType={placementShapeType}
+        hasSelection={selectedIds.length > 0}
+        gridEnabled={gridEnabled}
+        onToggleGrid={toggleGrid}
+        selectionMode={selectionMode}
+        onToggleSelectionMode={() => setSelectionMode(prev => prev === 'box' ? 'lasso' : 'box')}
       />
 
       {/* AI Input */}
@@ -2464,9 +2733,39 @@ const Canvas: React.FC = () => {
             onSendBackward={() => sendBack(contextMenu.shapeId)}
             onBringToFront={() => handleBringToFront(contextMenu.shapeId)}
             onSendToBack={() => handleSendToBack(contextMenu.shapeId)}
+            onCopy={() => {
+              copyShapes(selectedIds.length > 0 ? selectedIds : [contextMenu.shapeId]);
+              toast.success(`Copied ${selectedIds.length > 0 ? selectedIds.length : 1} shape${selectedIds.length > 1 ? 's' : ''}`);
+            }}
+            onCut={() => {
+              const shapesToCut = selectedIds.length > 0 ? selectedIds : [contextMenu.shapeId];
+              cutShapes(shapesToCut).then(() => {
+                toast.success(`Cut ${shapesToCut.length} shape${shapesToCut.length > 1 ? 's' : ''}`);
+              }).catch(err => {
+                console.error('Cut error:', err);
+                toast.error('Failed to cut shapes');
+              });
+            }}
+            onPaste={() => {
+              pasteShapes().then(() => {
+                toast.success('Pasted shapes');
+              }).catch(err => {
+                console.error('Paste error:', err);
+                toast.error('Failed to paste shapes');
+              });
+            }}
             onDuplicate={() => duplicateShape(contextMenu.shapeId)}
             onDelete={() => deleteShape(contextMenu.shapeId)}
+            onSelectAllOfType={() => {
+              const shape = shapes.find(s => s.id === contextMenu.shapeId);
+              if (shape) {
+                selectShapesByType(shape.type);
+                toast.success(`Selected all ${shape.type}s`);
+              }
+            }}
+            shapeType={shapes.find(s => s.id === contextMenu.shapeId)?.type}
             isLockedByOther={!!isLockedByOther}
+            hasClipboardData={hasClipboardData}
           />
         );
       })()}

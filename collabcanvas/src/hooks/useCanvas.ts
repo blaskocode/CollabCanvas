@@ -143,7 +143,7 @@ export const useCanvas = (userId: string, isAuthReady: boolean = true) => {
   ): Promise<string> => {
     try {
       // Generate unique ID using Firebase
-      const shapeId = doc(collection(db, 'canvas')).id;
+      const shapeId = doc(collection(db, 'canvases')).id;
 
       // Use the shape factory to create shape with type-specific defaults
       // Custom properties will override defaults

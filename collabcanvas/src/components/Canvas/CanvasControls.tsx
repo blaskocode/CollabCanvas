@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MAX_ZOOM } from '../../utils/constants';
 import type { ShapeType } from '../../utils/types';
 
@@ -15,10 +15,16 @@ interface CanvasControlsProps {
   canUndo?: boolean;
   canRedo?: boolean;
   onClearAll?: () => void;
+  onExport?: (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection') => void;
   isDrawingMode?: boolean;
   drawingShapeType?: ShapeType | null;
   isPlacementMode?: boolean;
   placementShapeType?: ShapeType | null;
+  hasSelection?: boolean;
+  gridEnabled?: boolean;
+  onToggleGrid?: () => void;
+  selectionMode?: 'box' | 'lasso';
+  onToggleSelectionMode?: () => void;
 }
 
 /**
@@ -39,13 +45,44 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
   canUndo = false,
   canRedo = false,
   onClearAll,
+  onExport,
   isDrawingMode = false,
   drawingShapeType = null,
   isPlacementMode = false,
   placementShapeType = null,
+  hasSelection = false,
+  gridEnabled = false,
+  onToggleGrid,
+  selectionMode = 'box',
+  onToggleSelectionMode,
 }) => {
   const canZoomIn = zoom < MAX_ZOOM;
   const canZoomOut = zoom > minZoom;
+  
+  // Export dropdown state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showExportMenu]);
+  
+  const handleExport = (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection') => {
+    if (onExport) {
+      onExport(format, exportType);
+      setShowExportMenu(false);
+    }
+  };
 
   return (
     <div 
@@ -304,6 +341,126 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Export Section */}
+      {onExport && (
+        <div className="relative" ref={exportMenuRef}>
+          <button
+            onClick={() => setShowExportMenu(!showExportMenu)}
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-2"
+            aria-label="Export canvas"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span>Export</span>
+            <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {/* Export Dropdown Menu */}
+          {showExportMenu && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50">
+              <div className="p-2 space-y-1">
+                <button
+                  onClick={() => handleExport('png', 'fullCanvas')}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 rounded-lg transition-colors"
+                >
+                  <div className="font-medium text-gray-900">Export Full Canvas</div>
+                  <div className="text-xs text-gray-500">Export entire 5000x5000 canvas</div>
+                </button>
+                
+                <button
+                  onClick={() => handleExport('png', 'visibleArea')}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 rounded-lg transition-colors"
+                >
+                  <div className="font-medium text-gray-900">Export Visible Area</div>
+                  <div className="text-xs text-gray-500">Export current viewport</div>
+                </button>
+                
+                {/* Only show "Export Selection" if there are selected shapes */}
+                {hasSelection && (
+                  <button
+                    onClick={() => handleExport('png', 'selection')}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 rounded-lg transition-colors"
+                  >
+                    <div className="font-medium text-gray-900">Export Selection</div>
+                    <div className="text-xs text-gray-500">Export selected shapes only</div>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Grid Toggle Button */}
+      {onToggleGrid && (
+        <button
+          onClick={onToggleGrid}
+          className={`w-full py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-2 ${
+            gridEnabled
+              ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white'
+              : 'bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700'
+          }`}
+          title={`Toggle Grid (Ctrl+')`}
+          aria-label="Toggle grid"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 4v16M16 4v16"
+              opacity="0.5"
+            />
+          </svg>
+          <span>{gridEnabled ? 'Hide Grid' : 'Show Grid'}</span>
+        </button>
+      )}
+      
+      {/* Selection Mode Toggle */}
+      {onToggleSelectionMode && (
+        <button
+          onClick={onToggleSelectionMode}
+          className="w-full py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white"
+          title={`Switch to ${selectionMode === 'box' ? 'Lasso' : 'Box'} Select (L)`}
+          aria-label="Toggle selection mode"
+        >
+          {selectionMode === 'box' ? (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"
+                />
+              </svg>
+              <span>Box Select</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
+                />
+              </svg>
+              <span>Lasso Select</span>
+            </>
+          )}
+        </button>
+      )}
 
       {/* Help Text */}
       <div 

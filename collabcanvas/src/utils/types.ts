@@ -262,7 +262,33 @@ export interface CanvasContextType {
   canUndo: boolean;
   canRedo: boolean;
   clearAll: () => Promise<void>;
+  // Clipboard operations
+  copyShapes: (shapeIds: string[]) => void;
+  cutShapes: (shapeIds: string[]) => Promise<void>;
+  pasteShapes: () => Promise<void>;
+  hasClipboardData: boolean;
+  // Export operations
+  exportCanvas: (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection') => void;
+  // Grid and snapping
+  gridEnabled: boolean;
+  toggleGrid: () => void;
+  // Selection tools
+  selectShapesByType: (shapeType: string) => void;
+  selectShapesInLasso: (lassoPolygon: Array<{ x: number; y: number }>) => void;
 }
+
+// ============================================================================
+// Color Palette Types
+// ============================================================================
+
+export interface ColorPalette {
+  id: string;
+  name: string;
+  colors: string[]; // Array of hex color codes
+  createdAt: number;
+}
+
+export type RecentColors = string[]; // Array of recently used hex colors (max 10)
 
 // ============================================================================
 // Konva Types (for canvas rendering)

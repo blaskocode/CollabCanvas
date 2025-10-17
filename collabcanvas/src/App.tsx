@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext';
 import { CanvasProvider } from './contexts/CanvasContext';
 import { HistoryProvider } from './contexts/HistoryContext';
+import { ClipboardProvider } from './contexts/ClipboardContext';
 import { useAuth } from './hooks/useAuth';
 import { ToastContainer } from './components/UI/Toast';
 import Login from './components/Auth/Login';
@@ -119,9 +120,11 @@ function App() {
             element={
               <ProtectedRoute>
                 <HistoryProvider>
-                  <CanvasProvider>
-                    <CanvasPage />
-                  </CanvasProvider>
+                  <ClipboardProvider>
+                    <CanvasProvider>
+                      <CanvasPage />
+                    </CanvasProvider>
+                  </ClipboardProvider>
                 </HistoryProvider>
               </ProtectedRoute>
             }

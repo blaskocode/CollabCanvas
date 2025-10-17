@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Circle, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { Shape, AnchorPosition } from '../../utils/types';
-import { getAnchorPosition, ANCHOR_POINT_RADIUS } from '../../utils/anchor-snapping';
+import { getAnchorPosition, getAllAnchors, ANCHOR_POINT_RADIUS } from '../../utils/anchor-snapping';
 
 interface AnchorPointProps {
   shape: Shape;
@@ -92,9 +92,11 @@ export const ShapeAnchors: React.FC<ShapeAnchorsProps> = ({
   activeAnchor,
   onAnchorClick,
 }) => {
-  const anchors: AnchorPosition[] = ['top', 'right', 'bottom', 'left'];
   const [liveShape, setLiveShape] = useState<Shape>(shape);
   const animationFrameRef = useRef<number | null>(null);
+  
+  // Get shape-specific anchors
+  const anchors = getAllAnchors(shape).map(a => a.anchor);
   
   // Track real-time position of the Konva node during dragging
   useEffect(() => {
@@ -122,6 +124,10 @@ export const ShapeAnchors: React.FC<ShapeAnchorsProps> = ({
         const radius = shape.radius || shape.width / 2;
         adjustedX = nodePos.x - radius;
         adjustedY = nodePos.y - radius;
+      } else if (shape.type === 'ellipse') {
+        // Ellipse is positioned at center, convert to top-left
+        adjustedX = nodePos.x - shape.width / 2;
+        adjustedY = nodePos.y - shape.height / 2;
       }
       
       // Update shape with live position

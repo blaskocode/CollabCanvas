@@ -414,7 +414,7 @@ export const deleteMultipleShapes = async (
 };
 
 /**
- * Clear all shapes and groups from the canvas in a single atomic operation
+ * Clear all shapes, groups, and connections from the canvas in a single atomic operation
  * 
  * @param canvasId - The canvas document ID
  */
@@ -424,10 +424,11 @@ export const clearAllShapes = async (
   try {
     const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
     
-    // Single atomic update to clear both shapes and groups arrays
+    // Single atomic update to clear shapes, groups, and connections arrays
     await updateDoc(canvasRef, {
       shapes: [],
       groups: [],
+      connections: [],
       lastUpdated: serverTimestamp(),
     });
   } catch (error) {

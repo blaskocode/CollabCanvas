@@ -26,13 +26,27 @@ import StartEndOval from './shapes/StartEndOval';
 import DocumentShape from './shapes/DocumentShape';
 import DatabaseShape from './shapes/DatabaseShape';
 import Connector from './shapes/Connector';
+import Triangle from './shapes/Triangle';
+import RightTriangle from './shapes/RightTriangle';
+import Hexagon from './shapes/Hexagon';
+import Octagon from './shapes/Octagon';
+import Ellipse from './shapes/Ellipse';
+import TextInput from './shapes/TextInput';
+import Textarea from './shapes/Textarea';
+import Dropdown from './shapes/Dropdown';
+import Radio from './shapes/Radio';
+import Checkbox from './shapes/Checkbox';
+import Button from './shapes/Button';
+import Toggle from './shapes/Toggle';
+import Slider from './shapes/Slider';
 import { ShapeAnchors } from './AnchorPoint';
 import InlineTextEditor from './InlineTextEditor';
 import Cursor from '../Collaboration/Cursor';
 import GridOverlay from './GridOverlay';
 import SmartGuides from './SmartGuides';
+import CommentBadge from './CommentBadge';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import type { Shape as ShapeType } from '../../utils/types';
+import type { Shape as ShapeType, Connection } from '../../utils/types';
 import { supportsAnchors } from '../../utils/anchor-snapping';
 import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../utils/snapping';
 
@@ -43,12 +57,16 @@ import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../util
  */
 const Canvas: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType } = useCanvasContext();
+  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, updateConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType, getShapeCommentCount, getShapeUnresolvedCommentCount } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
   // Inline text editor state
   const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
+  
+  // Track when editing just finished to prevent immediate drag
+  const [justFinishedEditingId, setJustFinishedEditingId] = useState<string | null>(null);
+  const editingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Track last selected group for two-click selection
   const lastSelectedGroupRef = useRef<{ groupId: string; timestamp: number } | null>(null);
@@ -138,13 +156,23 @@ const Canvas: React.FC = () => {
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Node | null>(null);
   
-  // Default sizes for workflow shapes (width x height)
+  // Default sizes for workflow shapes and form elements (width x height)
   const defaultWorkflowShapeSizes: Record<string, { width: number; height: number }> = {
+    // Workflow shapes
     process: { width: 160, height: 80 },
     decision: { width: 120, height: 120 },
     startEnd: { width: 140, height: 70 },
     document: { width: 140, height: 100 },
     database: { width: 120, height: 80 },
+    // Form elements (fixed sizes, click to place)
+    button: { width: 120, height: 40 },
+    textInput: { width: 200, height: 36 },
+    textarea: { width: 200, height: 100 },
+    dropdown: { width: 200, height: 36 },
+    checkbox: { width: 20, height: 20 },
+    radio: { width: 20, height: 20 },
+    toggle: { width: 48, height: 24 },
+    slider: { width: 200, height: 24 },
   };
 
   /**
@@ -189,6 +217,15 @@ const Canvas: React.FC = () => {
       lastSelectedGroupRef.current = null;
     }
   }, [selectedIds]);
+  
+  // Cleanup editing timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (editingTimeoutRef.current) {
+        clearTimeout(editingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Keyboard listener for Space key (panning)
   useEffect(() => {
@@ -699,7 +736,6 @@ const Canvas: React.FC = () => {
    * Handle shape drag start - enables auto-pan and locks group/multi-select shapes
    */
   const handleShapeDragStart = useCallback((shapeId: string) => {
-    console.log('[handleShapeDragStart]', shapeId);
     setIsDraggingShape(true);
     isDraggingShapeRef.current = true; // Prevent pan conflicts
     
@@ -719,7 +755,6 @@ const Canvas: React.FC = () => {
       
       // If only this one shape is selected (double-clicked for individual edit), keep it that way
       if (selectedGroupShapes.length === 1 && selectedGroupShapes[0] === shapeId) {
-        console.log('[handleShapeDragStart] Individual shape edit mode (double-clicked)');
         // This will fall through to normal single shape drag
       } else {
         // Otherwise, this is a group drag operation
@@ -727,7 +762,6 @@ const Canvas: React.FC = () => {
         const allSelected = group.shapeIds.every(id => selectedIds.includes(id));
         if (!allSelected) {
           selectMultipleShapes(group.shapeIds);
-          console.log('[handleShapeDragStart] Auto-selected entire group:', group.id);
         }
         
         // Save initial positions for all shapes in the group
@@ -760,7 +794,6 @@ const Canvas: React.FC = () => {
     // Select the shape immediately if it's not already selected
     if (!selectedIds.includes(shapeId)) {
       selectShape(shapeId);
-      console.log('[handleShapeDragStart] Auto-selected shape:', shapeId);
     }
     
     // Check if dragging a multi-selected (non-grouped) shape
@@ -1071,7 +1104,6 @@ const Canvas: React.FC = () => {
     const updatedShapes = currentData.shapes.map((shape: any) => {
       const update = updates.get(shape.id);
       if (update) {
-        console.log(`[updateShapesAtomic] Updating ${shape.id}: (${shape.x}, ${shape.y}) → (${update.x}, ${update.y})`);
         return {
           ...shape,
           x: update.x,
@@ -1135,8 +1167,6 @@ const Canvas: React.FC = () => {
             ? { ...g, x: minX, y: minY, width: maxX - minX, height: maxY - minY, lastModifiedAt: now }
             : g
         );
-        
-        console.log(`[updateShapesAtomic] Updated group ${groupId} bounds: (${minX}, ${minY}) ${maxX - minX}x${maxY - minY}`);
       }
     }
 
@@ -1145,15 +1175,12 @@ const Canvas: React.FC = () => {
       groups: updatedGroups,
       lastUpdated: serverTimestamp(),
     });
-    
-    console.log(`[updateShapesAtomic] Updated ${updates.size} shapes atomically${groupId ? ' with group bounds' : ''}`);
   };
 
   /**
    * Handle shape drag end - disables auto-pan and updates position(s)
    */
   const handleShapeDragEnd = useCallback(async (shapeId: string, x: number, y: number) => {
-    console.log('[handleShapeDragEnd]', shapeId, 'at', x, y);
     setIsDraggingShape(false);
     isDraggingShapeRef.current = false; // Allow panning again
     
@@ -1163,7 +1190,6 @@ const Canvas: React.FC = () => {
     // Clear any pan state to prevent accidental panning
     setIsPanning(false);
     panStartRef.current = null;
-    console.log('[handleShapeDragEnd] Cleared pan state');
     
     const groupDrag = groupDragRef.current;
     const multiSelectDrag = multiSelectDragRef.current;
@@ -1174,8 +1200,6 @@ const Canvas: React.FC = () => {
       if (initialPos) {
         const deltaX = x - initialPos.x;
         const deltaY = y - initialPos.y;
-        
-        console.log(`[Group Drag] Delta: (${deltaX}, ${deltaY})`);
         
         try {
           // Calculate all new positions
@@ -1212,8 +1236,6 @@ const Canvas: React.FC = () => {
       if (initialPos) {
         const deltaX = x - initialPos.x;
         const deltaY = y - initialPos.y;
-        
-        console.log(`[Multi-Select Drag] Delta: (${deltaX}, ${deltaY})`);
         
         try {
           // Calculate all new positions
@@ -1252,7 +1274,6 @@ const Canvas: React.FC = () => {
           const updates = new Map<string, { x: number; y: number }>();
           updates.set(shapeId, { x, y });
           await updateShapesAtomic(updates, shapeGroup.id);
-          console.log(`[Single Shape Drag] Updated shape ${shapeId} and group ${shapeGroup.id} bounds`);
         } else {
           // Shape is not in a group - use normal update
           await updateShape(shapeId, { x, y });
@@ -1287,6 +1308,18 @@ const Canvas: React.FC = () => {
   }, [updateCursor]);
 
   /**
+   * Handle Clear All - wraps context clearAll and clears local lasso state
+   */
+  const handleClearAll = async () => {
+    // Clear lasso drawing state
+    setIsLassoDrawing(false);
+    setLassoPath([]);
+    
+    // Call the context clearAll which will clear shapes, groups, connections, and selections
+    await clearAll();
+  };
+
+  /**
    * Handle clicking on the stage background to deselect shapes
    */
   /**
@@ -1316,14 +1349,11 @@ const Canvas: React.FC = () => {
   };
   
   /**
-   * Handle stage mouse down - start box select or drawing
+   * Handle stage/shape mouse down - start box select or drawing
    */
   const handleStageMouseDown = async (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
     if (!stage) return;
-    
-    const clickedOnEmpty = e.target === stage;
-    if (!clickedOnEmpty) return;
     
     const pos = stage.getPointerPosition();
     if (!pos) return;
@@ -1331,9 +1361,14 @@ const Canvas: React.FC = () => {
     const canvasX = (pos.x - stage.x()) / stage.scaleX();
     const canvasY = (pos.y - stage.y()) / stage.scaleY();
     
-    // Handle placement mode (click-to-place workflow shapes)
+    // Handle placement mode FIRST (click-to-place workflow shapes)
+    // This allows placing shapes even when clicking on top of other shapes
     if (isPlacementMode && placementShapeType && placementPreview && e.evt.button === 0) {
       const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
+      
+      // Calculate highest z-index to place new shape on top
+      const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
+      const newZIndex = maxZIndex + 1;
       
       // Place shape at the preview position
       await addShape(placementShapeType as ShapeType['type'], 
@@ -1341,7 +1376,8 @@ const Canvas: React.FC = () => {
         { 
           width: shapeSize.width, 
           height: shapeSize.height,
-          text: placementShapeType.charAt(0).toUpperCase() + placementShapeType.slice(1) // Default text
+          text: placementShapeType.charAt(0).toUpperCase() + placementShapeType.slice(1), // Default text
+          zIndex: newZIndex // Place on top of all existing shapes
         }
       );
       
@@ -1350,12 +1386,18 @@ const Canvas: React.FC = () => {
       return;
     }
     
-    // Handle drawing mode
+    // Handle drawing mode SECOND (drag to create shapes)
+    // This allows drawing even when clicking on top of other shapes
+    // No need to check if clicked on empty - just start drawing!
     if (isDrawingMode && drawingShapeType && e.evt.button === 0) {
       drawingStartRef.current = { x: canvasX, y: canvasY };
       setDrawingPreview({ x: canvasX, y: canvasY, width: 0, height: 0 });
       return;
     }
+    
+    // Only proceed with selection/panning if clicked on empty space
+    const clickedOnEmpty = e.target === stage;
+    if (!clickedOnEmpty) return;
     
     // Start panning if Space is pressed (but not if dragging a shape)
     if (isSpacePressed && !isDraggingShapeRef.current) {
@@ -1480,6 +1522,10 @@ const Canvas: React.FC = () => {
         const normalizedWidth = Math.abs(width);
         const normalizedHeight = Math.abs(height);
         
+        // Calculate highest z-index to place new shape on top
+        const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
+        const newZIndex = maxZIndex + 1;
+        
         // Type assertion since TypeScript doesn't narrow type correctly
         const shapeType = drawingShapeType as ShapeType['type'];
         
@@ -1490,7 +1536,12 @@ const Canvas: React.FC = () => {
           const radius = Math.min(normalizedWidth, normalizedHeight) / 2;
           const centerX = normalizedX + radius;
           const centerY = normalizedY + radius;
-          await addShape(shapeType, { x: centerX, y: centerY }, { radius, width: radius * 2, height: radius * 2 });
+          await addShape(shapeType, { x: centerX, y: centerY }, { 
+            radius, 
+            width: radius * 2, 
+            height: radius * 2,
+            zIndex: newZIndex 
+          });
         } else if (shapeType === 'line') {
           // For lines, calculate points relative to the starting position
           // Points are relative to the line's x,y position
@@ -1500,13 +1551,15 @@ const Canvas: React.FC = () => {
           await addShape(shapeType, { x: startX, y: startY }, { 
             points: [0, 0, width, height] as [number, number, number, number],
             width: normalizedWidth,
-            height: normalizedHeight
+            height: normalizedHeight,
+            zIndex: newZIndex
           });
         } else {
           // For rectangles and text
           await addShape(shapeType, { x: normalizedX, y: normalizedY }, { 
             width: normalizedWidth, 
-            height: normalizedHeight 
+            height: normalizedHeight,
+            zIndex: newZIndex
           });
         }
       }
@@ -1566,17 +1619,13 @@ const Canvas: React.FC = () => {
     // Prevent this handler from running if a shape is being dragged
     // or if the event target is not the stage itself
     if (isDraggingShapeRef.current) {
-      console.log('[handleStageDragEnd] Blocked: shape is being dragged');
       return;
     }
     
     const stage = e.target.getStage();
     if (!stage || e.target !== stage) {
-      console.log('[handleStageDragEnd] Blocked: event not from stage');
       return; // Event came from a shape, not the stage
     }
-    
-    console.log('[handleStageDragEnd] Executing: panning stage');
     
     const newPos = {
       x: stage.x(),
@@ -1737,9 +1786,81 @@ const Canvas: React.FC = () => {
   /**
    * Reset view to minimum zoom with canvas centered
    */
+  /**
+   * Reset view to fit all shapes in viewport
+   * Calculates bounding box of all shapes and zooms to fit with padding
+   */
   const handleResetView = () => {
-    setStageScale(MIN_ZOOM);
-    centerCanvasAtMinZoom(dimensions, MIN_ZOOM);
+    if (shapes.length === 0) {
+      // No shapes, just center at default zoom
+      setStageScale(1.0);
+      centerCanvasAtMinZoom(dimensions, 1.0);
+      return;
+    }
+    
+    // Calculate bounding box of all shapes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    
+    shapes.forEach(shape => {
+      let shapeMinX, shapeMinY, shapeMaxX, shapeMaxY;
+      
+      // Handle different shape types
+      if (shape.type === 'circle') {
+        const radius = shape.radius || 50;
+        shapeMinX = shape.x;
+        shapeMinY = shape.y;
+        shapeMaxX = shape.x + radius * 2;
+        shapeMaxY = shape.y + radius * 2;
+      } else if (shape.type === 'line' && shape.points) {
+        const [x1, y1, x2, y2] = shape.points;
+        shapeMinX = Math.min(x1, x2);
+        shapeMinY = Math.min(y1, y2);
+        shapeMaxX = Math.max(x1, x2);
+        shapeMaxY = Math.max(y1, y2);
+      } else if (shape.type === 'ellipse') {
+        // Ellipse is centered, adjust bounds
+        shapeMinX = shape.x;
+        shapeMinY = shape.y;
+        shapeMaxX = shape.x + (shape.width || 0);
+        shapeMaxY = shape.y + (shape.height || 0);
+      } else {
+        // Standard shapes (rectangle, triangles, etc)
+        shapeMinX = shape.x;
+        shapeMinY = shape.y;
+        shapeMaxX = shape.x + (shape.width || 0);
+        shapeMaxY = shape.y + (shape.height || 0);
+      }
+      
+      minX = Math.min(minX, shapeMinX);
+      minY = Math.min(minY, shapeMinY);
+      maxX = Math.max(maxX, shapeMaxX);
+      maxY = Math.max(maxY, shapeMaxY);
+    });
+    
+    // Calculate bounding box dimensions
+    const boundingWidth = maxX - minX;
+    const boundingHeight = maxY - minY;
+    const boundingCenterX = minX + boundingWidth / 2;
+    const boundingCenterY = minY + boundingHeight / 2;
+    
+    // Add padding (50px in canvas coordinates)
+    const padding = 50;
+    
+    // Calculate scale to fit bounding box with padding in viewport
+    const scaleX = dimensions.width / (boundingWidth + padding * 2);
+    const scaleY = dimensions.height / (boundingHeight + padding * 2);
+    const newScale = Math.min(scaleX, scaleY, MAX_ZOOM); // Don't exceed max zoom
+    const clampedScale = Math.max(newScale, MIN_ZOOM); // Don't go below min zoom
+    
+    // Calculate position to center the bounding box
+    const newX = dimensions.width / 2 - boundingCenterX * clampedScale;
+    const newY = dimensions.height / 2 - boundingCenterY * clampedScale;
+    
+    setStageScale(clampedScale);
+    setStagePos({ x: newX, y: newY });
   };
 
   /**
@@ -1774,10 +1895,14 @@ const Canvas: React.FC = () => {
    * Handle add shape button click - enter drawing or placement mode
    */
   const handleAddShape = (type: ShapeType['type']) => {
-    const workflowShapeTypes = ['process', 'decision', 'startEnd', 'document', 'database'];
+    // Workflow shapes and form elements use placement mode (click-to-place with fixed sizes)
+    const placementModeTypes = [
+      'process', 'decision', 'startEnd', 'document', 'database', // Workflow shapes
+      'button', 'textInput', 'textarea', 'dropdown', 'checkbox', 'radio', 'toggle', 'slider' // Form elements
+    ];
     
-    if (workflowShapeTypes.includes(type)) {
-      // Use placement mode for workflow shapes (click-to-place)
+    if (placementModeTypes.includes(type)) {
+      // Use placement mode for workflow shapes and form elements (click-to-place)
       setIsPlacementMode(true);
       setPlacementShapeType(type);
       setPlacementPreview(null); // Will be set on mouse move
@@ -1852,13 +1977,22 @@ const Canvas: React.FC = () => {
    * Render shape based on type
    */
   const renderShapeByType = (shape: ShapeType, shapeIsSelected: boolean) => {
+    // Disable dragging when:
+    // 1. Currently editing this shape, OR
+    // 2. Just finished editing this shape (grace period)
+    const isDraggingDisabled = editingShapeId === shape.id || justFinishedEditingId === shape.id;
+    
     const commonProps = {
       id: shape.id,
       isSelected: shapeIsSelected,
       isLocked: shape.isLocked,
       lockedBy: shape.lockedBy,
       currentUserId: currentUser?.uid || null,
+      isDraggingDisabled, // Pass this to shapes that support it
       onSelect: (e?: any) => {
+        // Don't allow selection during drawing/placement mode
+        if (isDrawingMode || isPlacementMode) return;
+        
         const shiftKey = e?.evt?.shiftKey || false;
         
         // Two-click selection for grouped shapes
@@ -1888,9 +2022,35 @@ const Canvas: React.FC = () => {
           lastSelectedGroupRef.current = null; // Reset
         }
       },
-      onDragStart: () => handleShapeDragStart(shape.id),
-      onDragMove: (x: number, y: number) => handleShapeDragMove(shape.id, x, y),
-      onDragEnd: (x: number, y: number) => handleShapeDragEnd(shape.id, x, y),
+      onDblClick: (e?: any) => {
+        // Double-click to edit text (for all shapes except line)
+        if (shape.type !== 'line') {
+          e?.evt?.preventDefault();
+          e?.evt?.stopPropagation();
+          setEditingShapeId(shape.id);
+        }
+      },
+      onDragStart: () => {
+        // Prevent drag if editing just finished (300ms grace period)
+        if (justFinishedEditingId === shape.id) {
+          return;
+        }
+        handleShapeDragStart(shape.id);
+      },
+      onDragMove: (x: number, y: number) => {
+        // Prevent drag move if editing just finished
+        if (justFinishedEditingId === shape.id) {
+          return;
+        }
+        handleShapeDragMove(shape.id, x, y);
+      },
+      onDragEnd: (x: number, y: number) => {
+        // Prevent drag end if editing just finished
+        if (justFinishedEditingId === shape.id) {
+          return;
+        }
+        handleShapeDragEnd(shape.id, x, y);
+      },
       onContextMenu: (e: any) => handleShapeContextMenu(e, shape.id),
       onRef: (node: any) => {
         if (node) {
@@ -1919,6 +2079,14 @@ const Canvas: React.FC = () => {
             rotation={shape.rotation}
             scaleX={shape.scaleX}
             scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
           />
         );
       
@@ -2014,7 +2182,6 @@ const Canvas: React.FC = () => {
             scaleY={shape.scaleY}
             text={shape.text}
             fontSize={shape.fontSize}
-            onDoubleClick={() => setEditingShapeId(shape.id)}
           />
         );
       
@@ -2036,7 +2203,6 @@ const Canvas: React.FC = () => {
             scaleY={shape.scaleY}
             text={shape.text}
             fontSize={shape.fontSize}
-            onDoubleClick={() => setEditingShapeId(shape.id)}
           />
         );
       
@@ -2058,7 +2224,6 @@ const Canvas: React.FC = () => {
             scaleY={shape.scaleY}
             text={shape.text}
             fontSize={shape.fontSize}
-            onDoubleClick={() => setEditingShapeId(shape.id)}
           />
         );
       
@@ -2080,7 +2245,6 @@ const Canvas: React.FC = () => {
             scaleY={shape.scaleY}
             text={shape.text}
             fontSize={shape.fontSize}
-            onDoubleClick={() => setEditingShapeId(shape.id)}
           />
         );
       
@@ -2102,7 +2266,306 @@ const Canvas: React.FC = () => {
             scaleY={shape.scaleY}
             text={shape.text}
             fontSize={shape.fontSize}
-            onDoubleClick={() => setEditingShapeId(shape.id)}
+          />
+        );
+      
+      case 'triangle':
+        return (
+          <Triangle
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
+          />
+        );
+      
+      case 'rightTriangle':
+        return (
+          <RightTriangle
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
+          />
+        );
+      
+      case 'hexagon':
+        return (
+          <Hexagon
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
+          />
+        );
+      
+      case 'octagon':
+        return (
+          <Octagon
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
+          />
+        );
+      
+      case 'ellipse':
+        return (
+          <Ellipse
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            text={shape.text}
+            fontSize={shape.fontSize}
+            fontFamily={shape.fontFamily}
+            textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
+            textColor={shape.textColor}
+          />
+        );
+      
+      case 'textInput':
+        return (
+          <TextInput
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'textarea':
+        return (
+          <Textarea
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'dropdown':
+        return (
+          <Dropdown
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'radio':
+        return (
+          <Radio
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'checkbox':
+        return (
+          <Checkbox
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'button':
+        return (
+          <Button
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'toggle':
+        return (
+          <Toggle
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
+          />
+        );
+      
+      case 'slider':
+        return (
+          <Slider
+            key={shape.id}
+            {...commonProps}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            opacity={shape.opacity}
+            rotation={shape.rotation}
+            scaleX={shape.scaleX}
+            scaleY={shape.scaleY}
+            formOptions={shape.formOptions}
           />
         );
       
@@ -2124,6 +2587,9 @@ const Canvas: React.FC = () => {
 
   // Get selected shape for property panel (must be before early return)
   const selectedShape = shapes.find((shape) => shape.id === selectedId) || null;
+  
+  // Get selected connection for property panel (must be before early return)
+  const selectedConnection = connections.find((conn) => conn.id === selectedConnectionId) || null;
 
   /**
    * Handle property updates from PropertyPanel
@@ -2141,6 +2607,21 @@ const Canvas: React.FC = () => {
   }, [selectedId, updateShape, toast]);
 
   /**
+   * Handle connection updates from PropertyPanel
+   * IMPORTANT: Must be declared before any early returns to follow Rules of Hooks
+   */
+  const handleConnectionUpdate = useCallback(async (updates: Partial<Connection>) => {
+    if (!selectedConnectionId) return;
+    
+    try {
+      await updateConnection(selectedConnectionId, updates);
+    } catch (error) {
+      console.error('Error updating connection properties:', error);
+      toast.error('Failed to update connection properties');
+    }
+  }, [selectedConnectionId, updateConnection, toast]);
+
+  /**
    * Effect to attach Transformer to selected shape
    * Finds the shape node by ID and attaches the Transformer to it
    */
@@ -2151,6 +2632,13 @@ const Canvas: React.FC = () => {
     if (selectedId && selectedShape) {
       // Don't show transformer for lines (they use custom endpoint handles)
       if (selectedShape.type === 'line') {
+        transformer.nodes([]);
+        return;
+      }
+
+      // Don't show transformer for form elements (they have fixed sizes)
+      const formElementTypes = ['button', 'textInput', 'textarea', 'dropdown', 'checkbox', 'radio', 'toggle', 'slider'];
+      if (formElementTypes.includes(selectedShape.type)) {
         transformer.nodes([]);
         return;
       }
@@ -2379,6 +2867,18 @@ const Canvas: React.FC = () => {
           {/* Render all shapes sorted by zIndex */}
           {sortedShapes.map((shape) => renderShapeByType(shape, isSelected(shape.id)))}
           
+          {/* Transparent overlay during drawing/placement mode to intercept mouse events */}
+          {(isDrawingMode || isPlacementMode) && (
+            <Rect
+              x={0}
+              y={0}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              fill="transparent"
+              listening={true}
+            />
+          )}
+          
           {/* Render group outlines (dotted rectangles around groups) */}
           {groups.map((group) => {
             // Check if any shape in the group is selected
@@ -2410,6 +2910,14 @@ const Canvas: React.FC = () => {
               shapeNodes={shapeNodesRef.current}
               isSelected={selectedConnectionId === connection.id}
               onSelect={() => selectConnection(connection.id)}
+              onUpdateConnection={async (updates) => {
+                try {
+                  await updateConnection(connection.id, updates);
+                } catch (error) {
+                  console.error('Error updating connection:', error);
+                  toast.error('Failed to update connection');
+                }
+              }}
               onContextMenu={(e) => {
                 e.cancelBubble = true;
                 // TODO: Add connection context menu if needed
@@ -2649,6 +3157,37 @@ const Canvas: React.FC = () => {
               );
             }
           })()}
+          
+          {/* Comment Badges - Show on shapes that have comments */}
+          {shapes
+            .filter(shape => getShapeCommentCount(shape.id) > 0)
+            .map(shape => {
+              // Calculate badge position at top-right corner of shape
+              const badgeX = shape.x + shape.width + (5 / stageScale); // Offset from top-right
+              const badgeY = shape.y - (5 / stageScale); // Slightly above top edge
+              
+              return (
+                <CommentBadge
+                  key={`comment-badge-${shape.id}`}
+                  x={badgeX}
+                  y={badgeY}
+                  commentCount={getShapeCommentCount(shape.id)}
+                  unresolvedCount={getShapeUnresolvedCommentCount(shape.id)}
+                  scale={stageScale}
+                  onClick={() => {
+                    // Select the shape and open comments panel
+                    selectShape(shape.id);
+                    if (!showCommentsPanel) {
+                      setShowCommentsPanel(true);
+                      if (showComponentLibrary) {
+                        setShowComponentLibrary(false);
+                      }
+                      setTopPanel('comments');
+                    }
+                  }}
+                />
+              );
+            })}
         </Layer>
       </Stage>
 
@@ -2663,9 +3202,26 @@ const Canvas: React.FC = () => {
             stageScale={stageScale}
             stageX={stagePos.x}
             stageY={stagePos.y}
-            onSave={(text) => {
-              updateShape(editingShapeId, { text });
+            onUpdate={(updates) => {
+              // Update shape without closing editor (for formatting changes)
+              updateShape(editingShapeId, updates);
+            }}
+            onSave={(updates) => {
+              // Save and close editor (for Enter key or blur)
+              updateShape(editingShapeId, updates);
               setEditingShapeId(null);
+              
+              // Prevent immediate dragging after editing
+              setJustFinishedEditingId(editingShapeId);
+              
+              // Clear the flag after a short delay
+              if (editingTimeoutRef.current) {
+                clearTimeout(editingTimeoutRef.current);
+              }
+              editingTimeoutRef.current = setTimeout(() => {
+                setJustFinishedEditingId(null);
+                editingTimeoutRef.current = null;
+              }, 300); // 300ms delay before dragging is re-enabled
             }}
             onCancel={() => setEditingShapeId(null)}
           />
@@ -2693,10 +3249,12 @@ const Canvas: React.FC = () => {
         );
       })}
 
-      {/* Property Panel (shows when shape selected) */}
+      {/* Property Panel (shows when shape or connection selected) */}
       <PropertyPanel
         shape={selectedShape}
+        connection={selectedConnection}
         onUpdate={handlePropertyUpdate}
+        onUpdateConnection={handleConnectionUpdate}
       />
 
       {/* Alignment Tools (shows when multiple shapes selected) */}
@@ -2760,7 +3318,7 @@ const Canvas: React.FC = () => {
         onRedo={redo}
         canUndo={canUndo}
         canRedo={canRedo}
-        onClearAll={clearAll}
+        onClearAll={handleClearAll}
         onExport={(format, exportType) => {
           try {
             exportCanvas(format, exportType);

@@ -1,10 +1,10 @@
 import React from 'react';
-import { Shape as KonvaShape, Text as KonvaText, Group } from 'react-konva';
+import { Rect, Circle, Text as KonvaText, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../utils/constants';
 
-interface DocumentShapeProps {
+interface SliderProps {
   id: string;
   x: number;
   y: number;
@@ -17,8 +17,12 @@ interface DocumentShapeProps {
   rotation?: number;
   scaleX?: number;
   scaleY?: number;
-  text?: string;
-  fontSize?: number;
+  formOptions?: {
+    label?: string;
+    value?: number;
+    min?: number;
+    max?: number;
+  };
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
@@ -34,18 +38,15 @@ interface DocumentShapeProps {
 }
 
 /**
- * DocumentShape Component
- * Renders a document shape (rectangle with wavy bottom edge)
- * Used for documents, reports, forms, etc.
- * 
- * @param props - DocumentShape properties
+ * Slider Form Element Component
+ * Visual mockup of a range slider with label for wireframing
  */
-const DocumentShape: React.FC<DocumentShapeProps> = ({
+const Slider: React.FC<SliderProps> = ({
   id,
   x,
   y,
-  width,
-  height,
+  width: _width,
+  height: _height,
   fill,
   stroke,
   strokeWidth = 0,
@@ -53,8 +54,7 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   rotation = 0,
   scaleX = 1,
   scaleY = 1,
-  text = '',
-  fontSize = 16,
+  formOptions,
   isSelected,
   isLocked,
   lockedBy,
@@ -70,24 +70,17 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
 }) => {
   const groupRef = React.useRef<Konva.Group>(null);
   
-  // Call onRef callback when ref changes
   React.useEffect(() => {
     if (onRef) {
       onRef(groupRef.current);
     }
   }, [onRef]);
 
-  /**
-   * Handle shape click to select
-   */
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
     onSelect(e);
   };
 
-  /**
-   * Handle shape tap (mobile) to select
-   */
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true;
     onSelect(e);
@@ -103,9 +96,6 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   };
 
 
-  /**
-   * Handle context menu (right-click)
-   */
   const handleContextMenu = (e: KonvaEventObject<PointerEvent>) => {
     e.cancelBubble = true;
     if (onContextMenu) {
@@ -113,9 +103,6 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
     }
   };
 
-  /**
-   * Handle drag start
-   */
   const handleDragStart = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
     if (onDragStart) {
@@ -123,50 +110,37 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
     }
   };
 
-  /**
-   * Handle drag end with boundary constraints
-   */
+  // Fixed dimensions for boundary calculations
+  const SLIDER_WIDTH = 200;
+  const SLIDER_HEIGHT = 24;
+
   const handleDragEnd = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
-    
     const node = e.target;
     const newX = node.x();
     const newY = node.y();
-
-    const constrainedX = Math.max(0, Math.min(newX, CANVAS_WIDTH - width));
-    const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - height));
-
+    const constrainedX = Math.max(0, Math.min(newX, CANVAS_WIDTH - SLIDER_WIDTH));
+    const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - SLIDER_HEIGHT));
     if (newX !== constrainedX || newY !== constrainedY) {
       node.position({ x: constrainedX, y: constrainedY });
     }
-
     onDragEnd(constrainedX, constrainedY);
   };
 
-  /**
-   * Handle drag move
-   */
   const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
-    
     const node = e.target;
     const newX = node.x();
     const newY = node.y();
-
-    const constrainedX = Math.max(0, Math.min(newX, CANVAS_WIDTH - width));
-    const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - height));
-
+    const constrainedX = Math.max(0, Math.min(newX, CANVAS_WIDTH - SLIDER_WIDTH));
+    const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - SLIDER_HEIGHT));
     node.position({ x: constrainedX, y: constrainedY });
-    
     if (onDragMove) {
       onDragMove(constrainedX, constrainedY);
     }
   };
 
-  // Check if shape is locked by another user
   const isLockedByOtherUser = isLocked && lockedBy && lockedBy !== currentUserId;
-
-  // Determine stroke color and style
   let finalStroke = stroke || 'transparent';
   let finalStrokeWidth = strokeWidth;
 
@@ -174,44 +148,28 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
     finalStroke = '#2563eb';
     finalStrokeWidth = 2;
   }
-
   if (isLockedByOtherUser) {
     finalStroke = '#ef4444';
     finalStrokeWidth = 3;
   }
 
-  /**
-   * Scene function to draw document shape with wavy bottom
-   */
-  const sceneFunc = (context: any, shape: any) => {
-    const waveAmplitude = height * 0.05; // 5% of height
-    const waveFrequency = 2; // Two waves across the width
-    
-    context.beginPath();
-    
-    // Top left corner
-    context.moveTo(0, 0);
-    
-    // Top right corner
-    context.lineTo(width, 0);
-    
-    // Right side
-    context.lineTo(width, height - waveAmplitude);
-    
-    // Wavy bottom (from right to left)
-    for (let i = width; i >= 0; i -= 5) {
-      const progress = i / width;
-      const waveOffset = Math.sin(progress * Math.PI * waveFrequency) * waveAmplitude;
-      context.lineTo(i, height - waveAmplitude + waveOffset);
-    }
-    
-    // Left side back to top
-    context.lineTo(0, height - waveAmplitude);
-    context.closePath();
-    
-    // Fill and stroke
-    context.fillStrokeShape(shape);
-  };
+  const label = formOptions?.label;
+  const value = formOptions?.value ?? 50;
+  const min = formOptions?.min ?? 0;
+  const max = formOptions?.max ?? 100;
+  
+  // Fixed dimensions for the slider
+  const sliderWidth = 200;
+  const sliderHeight = 24;
+  const trackHeight = 6;
+  const thumbSize = 20;
+  
+  // Calculate positions relative to group origin
+  const trackY = (sliderHeight - trackHeight) / 2;
+  
+  // Calculate thumb position based on value
+  const percentage = Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const thumbX = sliderWidth * percentage;
 
   return (
     <Group
@@ -231,39 +189,73 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
       onDragEnd={handleDragEnd}
       onDragMove={handleDragMove}
     >
-      {/* Document shape with wavy bottom */}
-      <KonvaShape
-        sceneFunc={sceneFunc}
-        fill={fill}
+      {/* Label if provided */}
+      {label && (
+        <KonvaText
+          x={0}
+          y={-18}
+          text={label}
+          fontSize={12}
+          fontFamily="Arial"
+          fill="#374151"
+          listening={false}
+        />
+      )}
+      
+      {/* Slider track (background) */}
+      <Rect
+        x={0}
+        y={trackY}
+        width={sliderWidth}
+        height={trackHeight}
+        fill="#e5e7eb"
         stroke={finalStroke}
         strokeWidth={finalStrokeWidth}
+        cornerRadius={trackHeight / 2}
         opacity={opacity / 100}
         shadowColor={isSelected ? '#2563eb' : 'transparent'}
         shadowBlur={isSelected ? 10 : 0}
         shadowOpacity={isSelected ? 0.3 : 0}
       />
       
-      {/* Text label */}
-      {text && (
-        <KonvaText
-          text={text}
-          width={width}
-          height={height * 0.85} // Account for wavy bottom
-          fontSize={fontSize}
-          fontFamily="Arial, sans-serif"
-          fill="#000000"
-          align="center"
-          verticalAlign="middle"
-          padding={10}
-          wrap="word"
-          ellipsis={true}
-          listening={false}
-        />
-      )}
+      {/* Filled track (progress) */}
+      <Rect
+        x={0}
+        y={trackY}
+        width={sliderWidth * percentage}
+        height={trackHeight}
+        fill={fill}
+        cornerRadius={trackHeight / 2}
+        listening={false}
+      />
+      
+      {/* Slider thumb */}
+      <Circle
+        x={thumbX}
+        y={trackY + trackHeight / 2}
+        radius={thumbSize / 2}
+        fill="#ffffff"
+        stroke={fill}
+        strokeWidth={2}
+        shadowColor="#00000033"
+        shadowBlur={4}
+        shadowOpacity={1}
+        listening={false}
+      />
+      
+      {/* Value label */}
+      <KonvaText
+        x={sliderWidth + 10}
+        y={(sliderHeight - 14) / 2}
+        text={value.toString()}
+        fontSize={14}
+        fontFamily="Arial"
+        fill="#374151"
+        listening={false}
+      />
     </Group>
   );
 };
 
-// Memoize component
-export default React.memo(DocumentShape);
+export default React.memo(Slider);
 

@@ -241,6 +241,86 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
           </button>
           
           <button
+            onClick={() => onAddShape('ellipse')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isDrawingMode && drawingShapeType === 'ellipse'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Draw Ellipse"
+            aria-label="Draw ellipse shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <ellipse cx="12" cy="12" rx="8" ry="5" strokeWidth={2} />
+            </svg>
+            <span className="text-xs">Ellipse</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('triangle')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isDrawingMode && drawingShapeType === 'triangle'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Draw Triangle (Isosceles)"
+            aria-label="Draw triangle shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4 L4 20 L20 20 Z" />
+            </svg>
+            <span className="text-xs">Triangle</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('rightTriangle')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isDrawingMode && drawingShapeType === 'rightTriangle'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Draw Right Triangle"
+            aria-label="Draw right triangle shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 20 L4 4 L20 20 Z" />
+            </svg>
+            <span className="text-xs">Right △</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('hexagon')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isDrawingMode && drawingShapeType === 'hexagon'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Draw Hexagon"
+            aria-label="Draw hexagon shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 4 L16 4 L20 12 L16 20 L8 20 L4 12 Z" />
+            </svg>
+            <span className="text-xs">Hexagon</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('octagon')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isDrawingMode && drawingShapeType === 'octagon'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Draw Octagon"
+            aria-label="Draw octagon shape"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4 L17 4 L20 7 L20 17 L17 20 L7 20 L4 17 L4 7 Z" />
+            </svg>
+            <span className="text-xs">Octagon</span>
+          </button>
+          
+          <button
             onClick={() => onAddShape('text')}
             className={`p-2 rounded-lg border-2 transition-all duration-200 ${
               isDrawingMode && drawingShapeType === 'text'
@@ -346,6 +426,148 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
           >
             <div className="text-2xl">🗄️</div>
             <span className="text-xs">Database</span>
+          </button>
+        </div>
+        
+        {/* Form Elements Section */}
+        <div className="text-xs font-medium text-gray-600 text-center mt-4 mb-2">
+          Form Elements
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onAddShape('textInput')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'textInput'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Text Input (Click to Place)"
+            aria-label="Place text input field"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="4" y="9" width="16" height="6" strokeWidth={2} rx="2" />
+              <line x1="7" y1="12" x2="13" y2="12" strokeWidth={1} />
+            </svg>
+            <span className="text-xs">Text Input</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('textarea')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'textarea'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Text Area (Click to Place)"
+            aria-label="Place text area"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="4" y="6" width="16" height="12" strokeWidth={2} rx="2" />
+              <line x1="7" y1="10" x2="17" y2="10" strokeWidth={1} />
+              <line x1="7" y1="13" x2="15" y2="13" strokeWidth={1} />
+            </svg>
+            <span className="text-xs">Text Area</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('button')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'button'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Button (Click to Place)"
+            aria-label="Place button"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="5" y="9" width="14" height="6" rx="3" />
+            </svg>
+            <span className="text-xs">Button</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('dropdown')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'dropdown'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Dropdown (Click to Place)"
+            aria-label="Place dropdown"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="4" y="9" width="16" height="6" strokeWidth={2} rx="2" />
+              <path d="M15 11 L17 13 L19 11" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-xs">Dropdown</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('checkbox')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'checkbox'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Checkbox (Click to Place)"
+            aria-label="Place checkbox"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="6" width="12" height="12" strokeWidth={2} rx="2" />
+              <path d="M9 12 L11 14 L15 10" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-xs">Checkbox</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('radio')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'radio'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Radio Button (Click to Place)"
+            aria-label="Place radio button"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="6" strokeWidth={2} />
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+            </svg>
+            <span className="text-xs">Radio</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('toggle')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'toggle'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Toggle Switch (Click to Place)"
+            aria-label="Place toggle switch"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="9" width="12" height="6" strokeWidth={2} rx="3" />
+              <circle cx="15" cy="12" r="2" fill="currentColor" />
+            </svg>
+            <span className="text-xs">Toggle</span>
+          </button>
+          
+          <button
+            onClick={() => onAddShape('slider')}
+            className={`p-2 rounded-lg border-2 transition-all duration-200 ${
+              isPlacementMode && placementShapeType === 'slider'
+                ? 'border-green-500 bg-green-50 ring-2 ring-green-300'
+                : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+            }`}
+            title="Slider (Click to Place)"
+            aria-label="Place slider"
+          >
+            <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <line x1="6" y1="12" x2="18" y2="12" strokeWidth={2} strokeLinecap="round" />
+              <circle cx="14" cy="12" r="2" fill="currentColor" />
+            </svg>
+            <span className="text-xs">Slider</span>
           </button>
         </div>
       </div>

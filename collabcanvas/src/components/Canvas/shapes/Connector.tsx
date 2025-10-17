@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Arrow, Group, Text as KonvaText, Rect } from 'react-konva';
+import { Arrow, Line, Group, Text as KonvaText, Rect, Circle as KonvaCircle } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Connection, Shape } from '../../../utils/types';
-import { getAnchorPosition } from '../../../utils/anchor-snapping';
+import { getAnchorPosition, findSnappableAnchor } from '../../../utils/anchor-snapping';
 
 interface ConnectorProps {
   connection: Connection;
@@ -12,6 +12,7 @@ interface ConnectorProps {
   isSelected: boolean;
   onSelect: () => void;
   onContextMenu?: (e: KonvaEventObject<PointerEvent>) => void;
+  onUpdateConnection?: (updates: Partial<Connection>) => void;
 }
 
 /**
@@ -29,17 +30,79 @@ const Connector: React.FC<ConnectorProps> = ({
   isSelected,
   onSelect,
   onContextMenu,
+  onUpdateConnection,
 }) => {
   const groupRef = React.useRef<Konva.Group>(null);
+  const [isDraggingEndpoint, setIsDraggingEndpoint] = useState<'start' | 'end' | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<{ x: number; y: number } | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [liveEndpoints, setLiveEndpoints] = useState<{ start?: { x: number; y: number }; end?: { x: number; y: number } }>({});
+  const [startEndpointVersion, setStartEndpointVersion] = useState(0); // Force re-render of start endpoint
+  const [endEndpointVersion, setEndEndpointVersion] = useState(0); // Force re-render of end endpoint
   
-  // Find the connected shapes
-  const fromShapeBase = shapes.find(s => s.id === connection.fromShapeId);
-  const toShapeBase = shapes.find(s => s.id === connection.toShapeId);
+  // Find the connected shapes (may be undefined for free-floating endpoints)
+  const fromShapeBase = connection.fromShapeId ? shapes.find(s => s.id === connection.fromShapeId) : undefined;
+  const toShapeBase = connection.toShapeId ? shapes.find(s => s.id === connection.toShapeId) : undefined;
   
   // State for live shapes (updated during dragging)
   const [fromShape, setFromShape] = useState<Shape | undefined>(fromShapeBase);
   const [toShape, setToShape] = useState<Shape | undefined>(toShapeBase);
   const animationFrameRef = useRef<number | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const liveEndpointTimeoutRef = useRef<{ start?: NodeJS.Timeout; end?: NodeJS.Timeout }>({});
+  
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+      if (liveEndpointTimeoutRef.current.start) {
+        clearTimeout(liveEndpointTimeoutRef.current.start);
+      }
+      if (liveEndpointTimeoutRef.current.end) {
+        clearTimeout(liveEndpointTimeoutRef.current.end);
+      }
+    };
+  }, []);
+  
+  // Clear live start endpoint when FROM connection data updates from Firestore
+  useEffect(() => {
+    // Only clear start endpoint if we're not dragging it
+    if (isDraggingEndpoint !== 'start') {
+      // Clear any pending timeout for start endpoint
+      if (liveEndpointTimeoutRef.current.start) {
+        clearTimeout(liveEndpointTimeoutRef.current.start);
+        liveEndpointTimeoutRef.current.start = undefined;
+      }
+      
+      setLiveEndpoints(prev => {
+        // Only clear start, preserve end
+        const newState = { ...prev };
+        delete newState.start;
+        return newState;
+      });
+    }
+  }, [connection.fromShapeId, connection.fromAnchor, connection.fromPoint, isDraggingEndpoint]);
+  
+  // Clear live end endpoint when TO connection data updates from Firestore
+  useEffect(() => {
+    // Only clear end endpoint if we're not dragging it
+    if (isDraggingEndpoint !== 'end') {
+      // Clear any pending timeout for end endpoint
+      if (liveEndpointTimeoutRef.current.end) {
+        clearTimeout(liveEndpointTimeoutRef.current.end);
+        liveEndpointTimeoutRef.current.end = undefined;
+      }
+      
+      setLiveEndpoints(prev => {
+        // Only clear end, preserve start
+        const newState = { ...prev };
+        delete newState.end;
+        return newState;
+      });
+    }
+  }, [connection.toShapeId, connection.toAnchor, connection.toPoint, isDraggingEndpoint]);
   
   // Track real-time positions of connected shapes during dragging
   useEffect(() => {
@@ -49,8 +112,8 @@ const Connector: React.FC<ConnectorProps> = ({
       return;
     }
     
-    const fromNode = shapeNodes.get(connection.fromShapeId);
-    const toNode = shapeNodes.get(connection.toShapeId);
+    const fromNode = connection.fromShapeId ? shapeNodes.get(connection.fromShapeId) : null;
+    const toNode = connection.toShapeId ? shapeNodes.get(connection.toShapeId) : null;
     
     if (!fromNode || !toNode) {
       setFromShape(fromShapeBase);
@@ -124,14 +187,33 @@ const Connector: React.FC<ConnectorProps> = ({
     };
   }, [shapeNodes, fromShapeBase, toShapeBase, connection.fromShapeId, connection.toShapeId]);
   
-  // If either shape is missing, don't render
-  if (!fromShape || !toShape) {
-    return null;
+  // Calculate endpoint positions
+  let fromPos: { x: number; y: number };
+  let toPos: { x: number; y: number };
+  
+  // From endpoint: use live position if dragging, otherwise calculate from connection data
+  if (liveEndpoints.start) {
+    fromPos = liveEndpoints.start;
+  } else if (fromShape && connection.fromShapeId && connection.fromAnchor) {
+    fromPos = getAnchorPosition(fromShape, connection.fromAnchor);
+  } else if (connection.fromPoint) {
+    fromPos = connection.fromPoint;
+  } else {
+    // Fallback: default position
+    fromPos = { x: 100, y: 100 };
   }
   
-  // Calculate anchor positions
-  const fromPos = getAnchorPosition(fromShape, connection.fromAnchor);
-  const toPos = getAnchorPosition(toShape, connection.toAnchor);
+  // To endpoint: use live position if dragging, otherwise calculate from connection data
+  if (liveEndpoints.end) {
+    toPos = liveEndpoints.end;
+  } else if (toShape && connection.toShapeId && connection.toAnchor) {
+    toPos = getAnchorPosition(toShape, connection.toAnchor);
+  } else if (connection.toPoint) {
+    toPos = connection.toPoint;
+  } else {
+    // Fallback: default position
+    toPos = { x: 200, y: 200 };
+  }
   
   /**
    * Handle connector click to select
@@ -151,6 +233,177 @@ const Connector: React.FC<ConnectorProps> = ({
     }
   };
   
+  /**
+   * Handle mouse enter - show endpoint handles
+   */
+  const handleMouseEnter = () => {
+    // Clear any pending hide timeout
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setIsHovered(true);
+  };
+  
+  /**
+   * Handle mouse leave - hide endpoint handles with delay (unless dragging)
+   */
+  const handleMouseLeave = () => {
+    // Don't hide handles if we're dragging an endpoint
+    if (!isDraggingEndpoint) {
+      // Use a small delay to prevent flashing when moving between arrow and handles
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+      hoverTimeoutRef.current = setTimeout(() => {
+        setIsHovered(false);
+        hoverTimeoutRef.current = null;
+      }, 50);
+    }
+  };
+  
+  /**
+   * Handle endpoint drag start
+   */
+  const handleEndpointDragStart = (endpoint: 'start' | 'end') => {
+    setIsDraggingEndpoint(endpoint);
+    setIsHovered(true); // Keep hovered state during drag
+  };
+  
+  /**
+   * Handle endpoint drag move - show snap indicator and update live position
+   */
+  const handleEndpointDragMove = (endpoint: 'start' | 'end', e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    const node = e.target;
+    const newX = node.x();
+    const newY = node.y();
+    
+    // Update ONLY the endpoint being dragged, preserve the other
+    if (endpoint === 'start') {
+      setLiveEndpoints(prev => ({ 
+        start: { x: newX, y: newY },
+        // Explicitly preserve end if it exists
+        ...(prev.end ? { end: prev.end } : {})
+      }));
+    } else {
+      setLiveEndpoints(prev => ({ 
+        end: { x: newX, y: newY },
+        // Explicitly preserve start if it exists
+        ...(prev.start ? { start: prev.start } : {})
+      }));
+    }
+    
+    // Check for nearby anchor points
+    const snappableAnchor = findSnappableAnchor(shapes, newX, newY);
+    
+    if (snappableAnchor) {
+      setSnapIndicator({ x: snappableAnchor.x, y: snappableAnchor.y });
+    } else {
+      setSnapIndicator(null);
+    }
+  };
+  
+  /**
+   * Handle endpoint drag end - update connection
+   */
+  const handleEndpointDragEnd = (endpoint: 'start' | 'end', e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    
+    const node = e.target;
+    const newX = node.x();
+    const newY = node.y();
+    
+    setIsDraggingEndpoint(null);
+    setSnapIndicator(null);
+    
+    if (!onUpdateConnection) return;
+    
+    // Check for nearby anchor points
+    const snappableAnchor = findSnappableAnchor(shapes, newX, newY);
+    
+    const updates: Partial<Connection> = {};
+    let finalPosition: { x: number; y: number };
+    
+    if (endpoint === 'start') {
+      if (snappableAnchor) {
+        // Snap to anchor
+        updates.fromShapeId = snappableAnchor.shapeId;
+        updates.fromAnchor = snappableAnchor.anchor;
+        updates.fromPoint = undefined;
+        // Use the anchor position as final position
+        finalPosition = { x: snappableAnchor.x, y: snappableAnchor.y };
+      } else {
+        // Free-floating
+        updates.fromShapeId = undefined;
+        updates.fromAnchor = undefined;
+        updates.fromPoint = { x: newX, y: newY };
+        finalPosition = { x: newX, y: newY };
+      }
+      // Update live endpoint to final position immediately, preserve the other
+      setLiveEndpoints(prev => ({ 
+        start: finalPosition,
+        ...(prev.end ? { end: prev.end } : {})
+      }));
+      
+      // Set a safety timeout to clear this endpoint if Firebase doesn't update within 5 seconds
+      if (liveEndpointTimeoutRef.current.start) {
+        clearTimeout(liveEndpointTimeoutRef.current.start);
+      }
+      liveEndpointTimeoutRef.current.start = setTimeout(() => {
+        setLiveEndpoints(prev => {
+          const newState = { ...prev };
+          delete newState.start;
+          return newState;
+        });
+        liveEndpointTimeoutRef.current.start = undefined;
+      }, 5000);
+    } else {
+      if (snappableAnchor) {
+        // Snap to anchor
+        updates.toShapeId = snappableAnchor.shapeId;
+        updates.toAnchor = snappableAnchor.anchor;
+        updates.toPoint = undefined;
+        // Use the anchor position as final position
+        finalPosition = { x: snappableAnchor.x, y: snappableAnchor.y };
+      } else {
+        // Free-floating
+        updates.toShapeId = undefined;
+        updates.toAnchor = undefined;
+        updates.toPoint = { x: newX, y: newY };
+        finalPosition = { x: newX, y: newY };
+      }
+      // Update live endpoint to final position immediately, preserve the other
+      setLiveEndpoints(prev => ({ 
+        end: finalPosition,
+        ...(prev.start ? { start: prev.start } : {})
+      }));
+      
+      // Set a safety timeout to clear this endpoint if Firebase doesn't update within 5 seconds
+      if (liveEndpointTimeoutRef.current.end) {
+        clearTimeout(liveEndpointTimeoutRef.current.end);
+      }
+      liveEndpointTimeoutRef.current.end = setTimeout(() => {
+        setLiveEndpoints(prev => {
+          const newState = { ...prev };
+          delete newState.end;
+          return newState;
+        });
+        liveEndpointTimeoutRef.current.end = undefined;
+      }, 5000);
+    }
+    
+    // Increment version to force endpoint re-render and clear dragged position
+    // Only increment the version for the endpoint that was dragged
+    if (endpoint === 'start') {
+      setStartEndpointVersion(v => v + 1);
+    } else {
+      setEndEndpointVersion(v => v + 1);
+    }
+    
+    onUpdateConnection(updates);
+  };
+  
   // Determine stroke color based on selection
   const strokeColor = isSelected ? '#2563eb' : (connection.stroke || '#000000');
   const strokeWidth = connection.strokeWidth || 2;
@@ -162,8 +415,25 @@ const Connector: React.FC<ConnectorProps> = ({
   const pointerLength = 10;
   const pointerWidth = 10;
   
-  const showPointerAtEnd = connection.arrowType === 'end' || connection.arrowType === 'both';
-  const showPointerAtStart = connection.arrowType === 'both';
+  // Support both old arrowType format and new arrowStart/arrowEnd flags
+  // MUST match the logic in PropertyPanel.tsx for consistency
+  let showPointerAtEnd = false;
+  let showPointerAtStart = false;
+  
+  // Check if using new format (explicit arrowStart/arrowEnd)
+  if (connection.arrowStart !== undefined || connection.arrowEnd !== undefined) {
+    // New format: use explicit values (default to false if not set)
+    showPointerAtStart = connection.arrowStart === true;
+    showPointerAtEnd = connection.arrowEnd === true;
+  } else if (connection.arrowType !== undefined) {
+    // Legacy format: use arrowType (note: 'start' doesn't exist in ArrowType, only 'both')
+    showPointerAtStart = connection.arrowType === 'both';
+    showPointerAtEnd = connection.arrowType === 'end' || connection.arrowType === 'both';
+  } else {
+    // No arrow properties set: default to end arrow only (legacy behavior)
+    showPointerAtStart = false;
+    showPointerAtEnd = true;
+  }
   
   // Calculate label position (midpoint of line)
   const labelX = (fromPos.x + toPos.x) / 2;
@@ -179,22 +449,57 @@ const Connector: React.FC<ConnectorProps> = ({
   
   return (
     <Group ref={groupRef}>
-      {/* Main arrow line */}
-      <Arrow
-        points={points}
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-        fill={strokeColor}
-        pointerLength={showPointerAtEnd ? pointerLength : 0}
-        pointerWidth={showPointerAtEnd ? pointerWidth : 0}
-        pointerAtBeginning={showPointerAtStart}
-        hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        shadowColor={isSelected ? '#2563eb' : 'transparent'}
-        shadowBlur={isSelected ? 8 : 0}
-        shadowOpacity={isSelected ? 0.5 : 0}
-      />
+      {/* Main line/arrow - Use Arrow component if end pointer needed, otherwise use Line */}
+      {showPointerAtEnd ? (
+        /* Arrow with end pointer */
+        <Arrow
+          points={points}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          fill={strokeColor}
+          pointerLength={pointerLength}
+          pointerWidth={pointerWidth}
+          pointerAtBeginning={showPointerAtStart}
+          hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
+          onClick={handleClick}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onContextMenu={handleContextMenu}
+          shadowColor={isSelected ? '#2563eb' : 'transparent'}
+          shadowBlur={isSelected ? 8 : 0}
+          shadowOpacity={isSelected ? 0.5 : 0}
+        />
+      ) : (
+        /* Line without end pointer (may have start pointer) */
+        <>
+          <Line
+            points={points}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
+            onClick={handleClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onContextMenu={handleContextMenu}
+            shadowColor={isSelected ? '#2563eb' : 'transparent'}
+            shadowBlur={isSelected ? 8 : 0}
+            shadowOpacity={isSelected ? 0.5 : 0}
+          />
+          {/* Manually draw start arrow if needed */}
+          {showPointerAtStart && (
+            <Arrow
+              points={[fromPos.x, fromPos.y, fromPos.x + (dx * 0.01), fromPos.y + (dy * 0.01)]}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              fill={strokeColor}
+              pointerLength={pointerLength}
+              pointerWidth={pointerWidth}
+              pointerAtBeginning={true}
+              listening={false}
+            />
+          )}
+        </>
+      )}
       
       {/* Label (if exists) */}
       {connection.label && (
@@ -233,6 +538,76 @@ const Connector: React.FC<ConnectorProps> = ({
           />
         </Group>
       )}
+      
+      {/* Endpoint handles (when selected or hovered) */}
+      {(isSelected || isHovered) && (
+        <>
+          {/* Start endpoint handle */}
+          <KonvaCircle
+            key={`start-${connection.id}-${startEndpointVersion}`}
+            x={fromPos.x}
+            y={fromPos.y}
+            radius={8}
+            fill={connection.fromShapeId ? '#10b981' : '#f59e0b'}
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable={true}
+            onDragStart={() => handleEndpointDragStart('start')}
+            onDragMove={(e) => handleEndpointDragMove('start', e)}
+            onDragEnd={(e) => handleEndpointDragEnd('start', e)}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            shadowColor="rgba(0,0,0,0.3)"
+            shadowBlur={4}
+            shadowOffsetY={2}
+          />
+          
+          {/* End endpoint handle */}
+          <KonvaCircle
+            key={`end-${connection.id}-${endEndpointVersion}`}
+            x={toPos.x}
+            y={toPos.y}
+            radius={8}
+            fill={connection.toShapeId ? '#10b981' : '#f59e0b'}
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable={true}
+            onDragStart={() => handleEndpointDragStart('end')}
+            onDragMove={(e) => handleEndpointDragMove('end', e)}
+            onDragEnd={(e) => handleEndpointDragEnd('end', e)}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            shadowColor="rgba(0,0,0,0.3)"
+            shadowBlur={4}
+            shadowOffsetY={2}
+          />
+        </>
+      )}
+      
+      {/* Snap indicator (when dragging endpoint near an anchor) */}
+      {snapIndicator && (
+        <>
+          {/* Outer glow */}
+          <KonvaCircle
+            x={snapIndicator.x}
+            y={snapIndicator.y}
+            radius={16}
+            fill="#3b82f6"
+            opacity={0.2}
+            listening={false}
+          />
+          {/* Inner circle */}
+          <KonvaCircle
+            x={snapIndicator.x}
+            y={snapIndicator.y}
+            radius={10}
+            fill="transparent"
+            stroke="#3b82f6"
+            strokeWidth={3}
+            listening={false}
+          />
+        </>
+      )}
     </Group>
   );
 };
@@ -251,6 +626,8 @@ export default React.memo(Connector, (prevProps, nextProps) => {
     prevProps.connection.stroke !== nextProps.connection.stroke ||
     prevProps.connection.strokeWidth !== nextProps.connection.strokeWidth ||
     prevProps.connection.arrowType !== nextProps.connection.arrowType ||
+    prevProps.connection.arrowStart !== nextProps.connection.arrowStart ||
+    prevProps.connection.arrowEnd !== nextProps.connection.arrowEnd ||
     prevProps.connection.label !== nextProps.connection.label ||
     prevProps.isSelected !== nextProps.isSelected
   ) {

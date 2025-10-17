@@ -78,11 +78,20 @@ export async function updateConnection(
   // Find and update the connection
   const updatedConnections = connections.map((conn: Connection) => {
     if (conn.id === connectionId) {
-      return {
+      const updated = {
         ...conn,
         ...updates,
         lastModifiedAt: Timestamp.now(),
       };
+      
+      // Remove undefined fields (to actually delete them from Firestore)
+      Object.keys(updated).forEach(key => {
+        if (updated[key as keyof typeof updated] === undefined) {
+          delete updated[key as keyof typeof updated];
+        }
+      });
+      
+      return updated;
     }
     return conn;
   });

@@ -1,8 +1,9 @@
 import React from 'react';
-import { Rect } from 'react-konva';
+import { Rect, Group, Text as KonvaText } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../utils/constants';
+import { getContrastTextColor } from '../../../utils/colorUtils';
 
 interface RectangleProps {
   id: string;
@@ -18,16 +19,26 @@ interface RectangleProps {
   rotation?: number;
   scaleX?: number;
   scaleY?: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: string;
+  textColor?: string;
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
+  isDraggingDisabled?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
+  onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
   onContextMenu?: (e: KonvaEventObject<PointerEvent>) => void;
-  onRef?: (node: Konva.Rect | null) => void;
+  onRef?: (node: Konva.Group | null) => void;
 }
 
 /**
@@ -50,23 +61,33 @@ const Rectangle: React.FC<RectangleProps> = ({
   rotation = 0,
   scaleX = 1,
   scaleY = 1,
+  text,
+  fontSize = 16,
+  fontFamily = 'Arial',
+  textAlign = 'center',
+  fontWeight = 'normal',
+  fontStyle = 'normal',
+  textDecoration = '',
+  textColor,
   isSelected,
   isLocked,
   lockedBy,
   currentUserId,
+  isDraggingDisabled = false,
   onSelect,
+  onDblClick,
   onDragStart,
   onDragMove,
   onDragEnd,
   onContextMenu,
   onRef,
 }) => {
-  const shapeRef = React.useRef<Konva.Rect>(null);
+  const groupRef = React.useRef<Konva.Group>(null);
   
   // Call onRef callback when ref changes
   React.useEffect(() => {
     if (onRef) {
-      onRef(shapeRef.current);
+      onRef(groupRef.current);
     }
   }, [onRef]);
 
@@ -84,6 +105,16 @@ const Rectangle: React.FC<RectangleProps> = ({
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true; // Prevent stage click
     onSelect(e);
+  };
+
+  /**
+   * Handle double-click to edit text
+   */
+  const handleDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true; // Prevent stage from receiving event
+    if (onDblClick) {
+      onDblClick(e);
+    }
   };
 
   /**
@@ -170,33 +201,61 @@ const Rectangle: React.FC<RectangleProps> = ({
     finalStrokeWidth = 3;
   }
 
+  // Determine text color - use textColor if provided, otherwise auto-contrast
+  const finalTextColor = textColor || getContrastTextColor(fill);
+
   return (
-    <Rect
-      ref={shapeRef}
+    <Group
+      ref={groupRef}
       id={id}
       x={x}
       y={y}
-      width={width}
-      height={height}
-      fill={fill}
-      stroke={finalStroke}
-      strokeWidth={finalStrokeWidth}
-      opacity={opacity / 100} // Convert 0-100 to 0-1
-      cornerRadius={cornerRadius}
       rotation={rotation}
       scaleX={scaleX}
       scaleY={scaleY}
-      draggable={!isLockedByOtherUser} // Only draggable if not locked by another user
+      draggable={!isLockedByOtherUser && !isDraggingDisabled} // Disable dragging during grace period
       onClick={handleClick}
+      onDblClick={handleDblClick}
       onTap={handleTap}
       onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragMove={handleDragMove}
-      shadowColor={isSelected ? '#2563eb' : 'transparent'}
-      shadowBlur={isSelected ? 10 : 0}
-      shadowOpacity={isSelected ? 0.3 : 0}
-    />
+    >
+      <Rect
+        width={width}
+        height={height}
+        fill={fill}
+        stroke={finalStroke}
+        strokeWidth={finalStrokeWidth}
+        opacity={opacity / 100} // Convert 0-100 to 0-1
+        cornerRadius={cornerRadius}
+        shadowColor={isSelected ? '#2563eb' : 'transparent'}
+        shadowBlur={isSelected ? 10 : 0}
+        shadowOpacity={isSelected ? 0.3 : 0}
+      />
+      
+      {/* Text overlay */}
+      {text && (
+        <KonvaText
+          text={text}
+          width={width}
+          height={height}
+          fontSize={fontSize}
+          fontFamily={fontFamily}
+          fontStyle={fontStyle}
+          fontVariant={fontWeight === 'bold' ? 'bold' : 'normal'}
+          textDecoration={textDecoration}
+          fill={finalTextColor}
+          align={textAlign}
+          verticalAlign="middle"
+          padding={10}
+          wrap="word"
+          ellipsis={true}
+          listening={false} // Text doesn't handle events
+        />
+      )}
+    </Group>
   );
 };
 

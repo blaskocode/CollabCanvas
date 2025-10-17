@@ -16,7 +16,9 @@ interface LineProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
+  isDraggingDisabled?: boolean;
   onSelect: (e?: any) => void;
+  onDblClick?: (e?: any) => void;
   onDragStart?: () => void;
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
@@ -43,7 +45,9 @@ const Line: React.FC<LineProps> = ({
   isLocked,
   lockedBy,
   currentUserId,
+  isDraggingDisabled: _isDraggingDisabled = false,
   onSelect,
+  onDblClick,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -76,6 +80,16 @@ const Line: React.FC<LineProps> = ({
     e.cancelBubble = true;
     onSelect(e);
   };
+  /**
+   * Handle double-click to edit text
+   */
+  const handleDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true; // Prevent stage from receiving event
+    if (onDblClick) {
+      onDblClick(e);
+    }
+  };
+
 
   /**
    * Handle context menu (right-click)
@@ -221,6 +235,7 @@ const Line: React.FC<LineProps> = ({
         opacity={opacity / 100} // Convert 0-100 to 0-1
         draggable={!isLockedByOtherUser && isDraggingPoint === null}
         onClick={handleClick}
+      onDblClick={handleDblClick}
         onTap={handleTap}
         onContextMenu={handleContextMenu}
         onDragStart={handleDragStart}

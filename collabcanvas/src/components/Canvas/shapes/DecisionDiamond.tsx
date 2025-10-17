@@ -23,12 +23,13 @@ interface DecisionDiamondProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
+  isDraggingDisabled?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
+  onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
   onContextMenu?: (e: KonvaEventObject<PointerEvent>) => void;
-  onDoubleClick?: () => void;
   onRef?: (node: Konva.Group | null) => void;
 }
 
@@ -58,12 +59,13 @@ const DecisionDiamond: React.FC<DecisionDiamondProps> = ({
   isLocked,
   lockedBy,
   currentUserId,
+  isDraggingDisabled = false,
   onSelect,
+  onDblClick,
   onDragStart,
   onDragMove,
   onDragEnd,
   onContextMenu,
-  onDoubleClick,
   onRef,
 }) => {
   const groupRef = React.useRef<Konva.Group>(null);
@@ -90,16 +92,16 @@ const DecisionDiamond: React.FC<DecisionDiamondProps> = ({
     e.cancelBubble = true;
     onSelect(e);
   };
-
   /**
-   * Handle double click for text editing
+   * Handle double-click to edit text
    */
-  const handleDoubleClick = (e: KonvaEventObject<MouseEvent>) => {
-    e.cancelBubble = true;
-    if (onDoubleClick) {
-      onDoubleClick();
+  const handleDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true; // Prevent stage from receiving event
+    if (onDblClick) {
+      onDblClick(e);
     }
   };
+
 
   /**
    * Handle context menu (right-click)
@@ -201,10 +203,10 @@ const DecisionDiamond: React.FC<DecisionDiamondProps> = ({
       rotation={rotation}
       scaleX={scaleX}
       scaleY={scaleY}
-      draggable={!isLockedByOtherUser}
+      draggable={!isLockedByOtherUser && !isDraggingDisabled}
       onClick={handleClick}
+      onDblClick={handleDblClick}
       onTap={handleTap}
-      onDblClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}

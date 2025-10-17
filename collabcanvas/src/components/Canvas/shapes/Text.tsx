@@ -29,7 +29,9 @@ interface TextProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
+  isDraggingDisabled?: boolean;
   onSelect: (e?: any) => void;
+  onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
@@ -65,7 +67,9 @@ const Text: React.FC<TextProps> = ({
   isLocked,
   lockedBy,
   currentUserId,
+  isDraggingDisabled = false,
   onSelect,
+  onDblClick,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -98,17 +102,13 @@ const Text: React.FC<TextProps> = ({
   };
 
   /**
-   * Handle double-click to enter edit mode
+   * Handle double-click to edit text
    */
-  const handleDoubleClick = (e: KonvaEventObject<MouseEvent>) => {
-    e.cancelBubble = true;
-    
-    // Don't allow editing if locked by another user
-    if (isLockedByOtherUser) {
-      return;
+  const handleDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true; // Prevent stage from receiving event
+    if (onDblClick) {
+      onDblClick(e);
     }
-    
-    setIsEditing(true);
   };
 
   /**
@@ -311,11 +311,10 @@ const Text: React.FC<TextProps> = ({
       rotation={rotation}
       scaleX={1}
       scaleY={1}
-      draggable={!isLockedByOtherUser && !isEditing}
+      draggable={!isLockedByOtherUser && !isEditing && !isDraggingDisabled}
       onClick={handleClick}
+      onDblClick={handleDblClick}
       onTap={handleClick}
-      onDblClick={handleDoubleClick}
-      onDblTap={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}

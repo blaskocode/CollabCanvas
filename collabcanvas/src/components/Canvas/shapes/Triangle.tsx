@@ -1,10 +1,11 @@
 import React from 'react';
-import { Shape as KonvaShape, Text as KonvaText, Group } from 'react-konva';
+import { Line, Text as KonvaText } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../utils/constants';
+import { getContrastTextColor } from '../../../utils/colorUtils';
 
-interface DocumentShapeProps {
+interface TriangleProps {
   id: string;
   x: number;
   y: number;
@@ -19,6 +20,13 @@ interface DocumentShapeProps {
   scaleY?: number;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: string;
+  textColor?: string;
   isSelected: boolean;
   isLocked: boolean;
   lockedBy: string | null;
@@ -30,17 +38,17 @@ interface DocumentShapeProps {
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
   onContextMenu?: (e: KonvaEventObject<PointerEvent>) => void;
-  onRef?: (node: Konva.Group | null) => void;
+  onRef?: (node: Konva.Line | null) => void;
 }
 
 /**
- * DocumentShape Component
- * Renders a document shape (rectangle with wavy bottom edge)
- * Used for documents, reports, forms, etc.
+ * Isosceles Triangle Component
+ * Renders an isosceles triangle (point at top) with selection, dragging, and lock states
+ * Default orientation: pointing up (apex at top)
  * 
- * @param props - DocumentShape properties
+ * @param props - Triangle properties
  */
-const DocumentShape: React.FC<DocumentShapeProps> = ({
+const Triangle: React.FC<TriangleProps> = ({
   id,
   x,
   y,
@@ -53,8 +61,15 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   rotation = 0,
   scaleX = 1,
   scaleY = 1,
-  text = '',
+  text,
   fontSize = 16,
+  fontFamily = 'Arial',
+  textAlign = 'center',
+  verticalAlign = 'middle',
+  fontWeight = 'normal',
+  fontStyle = 'normal',
+  textDecoration = '',
+  textColor,
   isSelected,
   isLocked,
   lockedBy,
@@ -68,12 +83,12 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   onContextMenu,
   onRef,
 }) => {
-  const groupRef = React.useRef<Konva.Group>(null);
+  const shapeRef = React.useRef<Konva.Line>(null);
   
   // Call onRef callback when ref changes
   React.useEffect(() => {
     if (onRef) {
-      onRef(groupRef.current);
+      onRef(shapeRef.current);
     }
   }, [onRef]);
 
@@ -133,6 +148,7 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
     const newX = node.x();
     const newY = node.y();
 
+    // Constrain to canvas boundaries
     const constrainedX = Math.max(0, Math.min(newX, CANVAS_WIDTH - width));
     const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - height));
 
@@ -144,7 +160,7 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   };
 
   /**
-   * Handle drag move
+   * Constrain drag bounds during dragging
    */
   const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
@@ -166,7 +182,7 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
   // Check if shape is locked by another user
   const isLockedByOtherUser = isLocked && lockedBy && lockedBy !== currentUserId;
 
-  // Determine stroke color and style
+  // Determine stroke color and style based on selection and lock state
   let finalStroke = stroke || 'transparent';
   let finalStrokeWidth = strokeWidth;
 
@@ -180,90 +196,71 @@ const DocumentShape: React.FC<DocumentShapeProps> = ({
     finalStrokeWidth = 3;
   }
 
-  /**
-   * Scene function to draw document shape with wavy bottom
-   */
-  const sceneFunc = (context: any, shape: any) => {
-    const waveAmplitude = height * 0.05; // 5% of height
-    const waveFrequency = 2; // Two waves across the width
-    
-    context.beginPath();
-    
-    // Top left corner
-    context.moveTo(0, 0);
-    
-    // Top right corner
-    context.lineTo(width, 0);
-    
-    // Right side
-    context.lineTo(width, height - waveAmplitude);
-    
-    // Wavy bottom (from right to left)
-    for (let i = width; i >= 0; i -= 5) {
-      const progress = i / width;
-      const waveOffset = Math.sin(progress * Math.PI * waveFrequency) * waveAmplitude;
-      context.lineTo(i, height - waveAmplitude + waveOffset);
-    }
-    
-    // Left side back to top
-    context.lineTo(0, height - waveAmplitude);
-    context.closePath();
-    
-    // Fill and stroke
-    context.fillStrokeShape(shape);
-  };
+  // Calculate triangle points (isosceles, pointing up)
+  // Top point (apex), bottom-left, bottom-right
+  const points = [
+    width / 2, 0,           // Top center
+    0, height,              // Bottom left
+    width, height,          // Bottom right
+  ];
+
+  // Determine text color
+  const finalTextColor = textColor || getContrastTextColor(fill);
 
   return (
-    <Group
-      ref={groupRef}
-      id={id}
-      x={x}
-      y={y}
-      rotation={rotation}
-      scaleX={scaleX}
-      scaleY={scaleY}
-      draggable={!isLockedByOtherUser && !isDraggingDisabled}
-      onClick={handleClick}
-      onDblClick={handleDblClick}
-      onTap={handleTap}
-      onContextMenu={handleContextMenu}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragMove={handleDragMove}
-    >
-      {/* Document shape with wavy bottom */}
-      <KonvaShape
-        sceneFunc={sceneFunc}
+    <>
+      {/* Triangle shape */}
+      <Line
+        ref={shapeRef}
+        id={id}
+        x={x}
+        y={y}
+        points={points}
+        closed
         fill={fill}
         stroke={finalStroke}
         strokeWidth={finalStrokeWidth}
         opacity={opacity / 100}
+        rotation={rotation}
+        scaleX={scaleX}
+        scaleY={scaleY}
+        draggable={!isLockedByOtherUser && !isDraggingDisabled}
+        onClick={handleClick}
+      onDblClick={handleDblClick}
+        onTap={handleTap}
+        onContextMenu={handleContextMenu}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragMove={handleDragMove}
         shadowColor={isSelected ? '#2563eb' : 'transparent'}
         shadowBlur={isSelected ? 10 : 0}
         shadowOpacity={isSelected ? 0.3 : 0}
       />
       
-      {/* Text label */}
+      {/* Text overlay */}
       {text && (
         <KonvaText
-          text={text}
+          x={x}
+          y={y + height / 3} // Position text in lower 2/3 of triangle
           width={width}
-          height={height * 0.85} // Account for wavy bottom
+          height={height / 2}
+          text={text}
           fontSize={fontSize}
-          fontFamily="Arial, sans-serif"
-          fill="#000000"
-          align="center"
-          verticalAlign="middle"
-          padding={10}
-          wrap="word"
-          ellipsis={true}
+          fontFamily={fontFamily}
+          fontStyle={`${fontStyle} ${fontWeight}`}
+          textDecoration={textDecoration}
+          align={textAlign}
+          verticalAlign={verticalAlign}
+          fill={finalTextColor}
           listening={false}
+          rotation={rotation}
+          scaleX={scaleX}
+          scaleY={scaleY}
         />
       )}
-    </Group>
+    </>
   );
 };
 
-// Memoize component
-export default React.memo(DocumentShape);
+export default React.memo(Triangle);
 

@@ -20,7 +20,9 @@ interface CircleProps {
   isLocked: boolean;
   lockedBy: string | null;
   currentUserId: string | null;
+  isDraggingDisabled?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
+  onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
   onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
@@ -50,7 +52,9 @@ const Circle: React.FC<CircleProps> = ({
   isLocked,
   lockedBy,
   currentUserId,
+  isDraggingDisabled = false,
   onSelect,
+  onDblClick,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -81,6 +85,16 @@ const Circle: React.FC<CircleProps> = ({
     e.cancelBubble = true; // Prevent stage click
     onSelect(e);
   };
+  /**
+   * Handle double-click to edit text
+   */
+  const handleDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true; // Prevent stage from receiving event
+    if (onDblClick) {
+      onDblClick(e);
+    }
+  };
+
 
   /**
    * Handle context menu (right-click)
@@ -178,8 +192,9 @@ const Circle: React.FC<CircleProps> = ({
       rotation={rotation}
       scaleX={scaleX}
       scaleY={scaleY}
-      draggable={!isLockedByOtherUser}
+      draggable={!isLockedByOtherUser && !isDraggingDisabled}
       onClick={handleClick}
+      onDblClick={handleDblClick}
       onTap={handleTap}
       onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}

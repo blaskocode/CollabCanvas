@@ -150,3 +150,37 @@ export function getHueColor(hue: number): string {
   return rgbToHex(rgb);
 }
 
+/**
+ * Calculate relative luminance of a color (0-1)
+ * Uses the WCAG formula for relative luminance
+ * @param color - Hex color code
+ * @returns Luminance value between 0 (black) and 1 (white)
+ */
+export function calculateLuminance(color: string): number {
+  // Parse hex color
+  const hex = color.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  
+  // Apply gamma correction
+  const rLinear = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+  const gLinear = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+  const bLinear = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+  
+  // Calculate luminance
+  return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+}
+
+/**
+ * Get appropriate text color (black or white) based on background color
+ * @param backgroundColor - Hex color code of the background
+ * @returns '#000000' for dark text or '#ffffff' for light text
+ */
+export function getContrastTextColor(backgroundColor: string): string {
+  const luminance = calculateLuminance(backgroundColor);
+  // Threshold of 0.5 works well for most cases
+  // Light backgrounds get dark text, dark backgrounds get light text
+  return luminance > 0.5 ? '#000000' : '#ffffff';
+}
+

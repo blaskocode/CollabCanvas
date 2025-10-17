@@ -1,3 +1,5 @@
+import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { usePresence } from '../../hooks/usePresence';
@@ -8,6 +10,9 @@ export const Navbar = () => {
   const { currentUser, logout } = useAuth();
   const toast = useToast();
   const connectionStatus = useConnectionStatus();
+  const [showConnectionTooltip, setShowConnectionTooltip] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const connectionBadgeRef = useRef<HTMLDivElement>(null);
   
   // Get online users for presence list
   const { onlineUsers } = usePresence(
@@ -44,6 +49,21 @@ export const Navbar = () => {
   };
   
   const connectionInfo = getConnectionInfo();
+
+  const handleConnectionMouseEnter = () => {
+    if (connectionBadgeRef.current) {
+      const rect = connectionBadgeRef.current.getBoundingClientRect();
+      setTooltipPosition({
+        top: rect.bottom + 8, // 8px below the badge
+        left: rect.left + rect.width / 2, // Center horizontally
+      });
+      setShowConnectionTooltip(true);
+    }
+  };
+
+  const handleConnectionMouseLeave = () => {
+    setShowConnectionTooltip(false);
+  };
 
   const handleLogout = async () => {
     try {
@@ -104,22 +124,38 @@ export const Navbar = () => {
 
             {/* Connection Status Badge */}
             <div 
-              className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 hover:shadow-md transition-shadow duration-200 group relative"
+              ref={connectionBadgeRef}
+              onMouseEnter={handleConnectionMouseEnter}
+              onMouseLeave={handleConnectionMouseLeave}
+              className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 hover:shadow-md transition-shadow duration-200 cursor-default"
               role="status"
               aria-label={`Connection status: ${connectionInfo.text}`}
-              title={connectionInfo.tooltip}
             >
               <div className={`w-2.5 h-2.5 rounded-full ${connectionInfo.color} shadow-sm`}></div>
               <span className={`text-xs font-medium ${connectionInfo.textColor}`}>
                 {connectionInfo.text}
               </span>
-              
-              {/* Tooltip on hover */}
-              <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50 shadow-lg">
-                {connectionInfo.tooltip}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-900"></div>
-              </div>
             </div>
+            
+            {/* Tooltip rendered in portal at document root */}
+            {showConnectionTooltip && createPortal(
+              <div 
+                className="fixed px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap pointer-events-none shadow-lg transition-opacity duration-200"
+                style={{
+                  top: `${tooltipPosition.top}px`,
+                  left: `${tooltipPosition.left}px`,
+                  transform: 'translateX(-50%)',
+                  zIndex: 99999,
+                }}
+              >
+                {connectionInfo.tooltip}
+                <div 
+                  className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-900"
+                  style={{ marginBottom: '-1px' }}
+                ></div>
+              </div>,
+              document.body
+            )}
 
             {/* Divider */}
             <div 

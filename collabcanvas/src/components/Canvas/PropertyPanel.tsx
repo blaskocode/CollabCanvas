@@ -1,23 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ColorPicker from '../UI/ColorPicker';
-import type { Shape } from '../../utils/types';
+import type { Shape, Connection } from '../../utils/types';
 import { getTimeAgo } from '../../utils/timeHelpers';
 import { usePresence } from '../../hooks/usePresence';
 import { useAuth } from '../../hooks/useAuth';
 
 interface PropertyPanelProps {
   shape: Shape | null;
+  connection: Connection | null;
   onUpdate: (updates: Partial<Shape>) => void;
+  onUpdateConnection: (updates: Partial<Connection>) => void;
 }
 
 /**
  * PropertyPanel Component
- * Floating panel for editing shape styling properties
- * Shows when a shape is selected
+ * Floating panel for editing shape and connection styling properties
+ * Shows when a shape or connection is selected
  * 
  * @param props - PropertyPanel properties
  */
-const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
+const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, connection, onUpdate, onUpdateConnection }) => {
   // Get presence data for display names
   const { currentUser } = useAuth();
   const { onlineUsers } = usePresence(
@@ -33,14 +35,12 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   const [strokeWidth, setStrokeWidth] = useState(shape?.strokeWidth || 2);
   const [opacity, setOpacity] = useState(shape?.opacity || 100);
   const [cornerRadius, setCornerRadius] = useState(shape?.cornerRadius || 0);
-  
-  // Text-specific state
-  const [fontSize, setFontSize] = useState(shape?.fontSize || 16);
-  const [fontFamily, setFontFamily] = useState(shape?.fontFamily || 'Arial');
-  const [fontWeight, setFontWeight] = useState(shape?.fontWeight || 'normal');
-  const [fontStyle, setFontStyle] = useState(shape?.fontStyle || 'normal');
-  const [textDecoration, setTextDecoration] = useState(shape?.textDecoration || '');
-  const [textAlign, setTextAlign] = useState(shape?.textAlign || 'center');
+
+  // Connection-specific state
+  const [arrowStart, setArrowStart] = useState(false);
+  const [arrowEnd, setArrowEnd] = useState(false);
+  const [lineStrokeColor, setLineStrokeColor] = useState('#000000');
+  const [lineStrokeWidth, setLineStrokeWidth] = useState(2);
 
   // Debounce timer refs
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,7 +63,6 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
 
   // Update local state when shape changes
   useEffect(() => {
-    console.log('[PropertyPanel] Shape changed:', shape?.id, shape);
     if (shape) {
       setFillColor(shape.fill);
       setStrokeColor(shape.stroke || '#000000');
@@ -71,18 +70,37 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
       setStrokeWidth(shape.strokeWidth || 2);
       setOpacity(shape.opacity || 100);
       setCornerRadius(shape.cornerRadius || 0);
-      
-      // Text properties
-      if (shape.type === 'text') {
-        setFontSize(shape.fontSize || 16);
-        setFontFamily(shape.fontFamily || 'Arial');
-        setFontWeight(shape.fontWeight || 'normal');
-        setFontStyle(shape.fontStyle || 'normal');
-        setTextDecoration(shape.textDecoration || '');
-        setTextAlign(shape.textAlign || 'center');
-      }
     }
   }, [shape?.id]); // Only reset when shape ID changes
+
+  // Update local state when connection changes
+  useEffect(() => {
+    if (connection) {
+      // Handle both new (arrowStart/arrowEnd) and legacy (arrowType) properties
+      let hasArrowStart = false;
+      let hasArrowEnd = false;
+      
+      // Check if using new format (explicit arrowStart/arrowEnd)
+      if (connection.arrowStart !== undefined || connection.arrowEnd !== undefined) {
+        // New format: use explicit values (default to false if not set)
+        hasArrowStart = connection.arrowStart === true;
+        hasArrowEnd = connection.arrowEnd === true;
+      } else if (connection.arrowType !== undefined) {
+        // Legacy format: use arrowType (note: 'start' doesn't exist in ArrowType, only 'both')
+        hasArrowStart = connection.arrowType === 'both';
+        hasArrowEnd = connection.arrowType === 'end' || connection.arrowType === 'both';
+      } else {
+        // No arrow properties set: default to end arrow only (legacy behavior)
+        hasArrowStart = false;
+        hasArrowEnd = true;
+      }
+      
+      setArrowStart(hasArrowStart);
+      setArrowEnd(hasArrowEnd);
+      setLineStrokeColor(connection.stroke || '#000000');
+      setLineStrokeWidth(connection.strokeWidth || 2);
+    }
+  }, [connection]); // Watch the entire connection object for any changes
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -103,14 +121,23 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
     }, 300);
   }, [onUpdate]);
 
-  // If no shape selected, don't render
-  if (!shape) {
+  // Debounced update function for connection sliders (300ms delay)
+  const debouncedConnectionUpdate = useCallback((updates: Partial<Connection>) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      onUpdateConnection(updates);
+    }, 300);
+  }, [onUpdateConnection]);
+
+  // If no shape and no connection selected, don't render
+  if (!shape && !connection) {
     return null;
   }
 
   // Handle fill color change with immediate preview
   const handleFillChange = (color: string) => {
-    console.log('[PropertyPanel] Fill color changed:', color);
     setFillColor(color);
     onUpdate({ fill: color });
   };
@@ -150,104 +177,106 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
     debouncedUpdate({ cornerRadius: value });
   };
 
-  // Text formatting handlers
-  const handleFontSizeChange = (value: number) => {
-    setFontSize(value);
-    debouncedUpdate({ fontSize: value });
-  };
-
-  const handleFontFamilyChange = (value: string) => {
-    setFontFamily(value);
-    onUpdate({ fontFamily: value });
-  };
-
-  const handleFontWeightToggle = () => {
-    const newWeight = fontWeight === 'bold' ? 'normal' : 'bold';
-    setFontWeight(newWeight);
-    onUpdate({ fontWeight: newWeight });
-  };
-
-  const handleFontStyleToggle = () => {
-    const newStyle = fontStyle === 'italic' ? 'normal' : 'italic';
-    setFontStyle(newStyle);
-    onUpdate({ fontStyle: newStyle });
-  };
-
-  const handleTextDecorationToggle = (decoration: string) => {
-    const decorations = textDecoration.split(' ').filter(d => d);
-    const hasDecoration = decorations.includes(decoration);
+  // Connection handlers
+  const handleArrowStartToggle = () => {
+    if (!connection) return;
     
-    let newDecoration: string;
-    if (hasDecoration) {
-      // Remove the decoration
-      newDecoration = decorations.filter(d => d !== decoration).join(' ');
-    } else {
-      // Add the decoration
-      newDecoration = [...decorations, decoration].join(' ');
-    }
+    const newValue = !arrowStart;
+    setArrowStart(newValue);
     
-    setTextDecoration(newDecoration);
-    onUpdate({ textDecoration: newDecoration });
+    // Send both arrow states to properly override legacy arrowType
+    // Use local state for the other arrow (source of truth for the UI)
+    onUpdateConnection({ 
+      arrowStart: newValue,
+      arrowEnd: arrowEnd, // Use local state
+      arrowType: undefined // Clear legacy arrowType
+    });
   };
 
-  const handleTextAlignChange = (align: 'left' | 'center' | 'right') => {
-    setTextAlign(align);
-    onUpdate({ textAlign: align });
+  const handleArrowEndToggle = () => {
+    if (!connection) return;
+    
+    const newValue = !arrowEnd;
+    setArrowEnd(newValue);
+    
+    // Send both arrow states to properly override legacy arrowType
+    // Use local state for the other arrow (source of truth for the UI)
+    onUpdateConnection({ 
+      arrowStart: arrowStart, // Use local state
+      arrowEnd: newValue,
+      arrowType: undefined // Clear legacy arrowType
+    });
   };
 
-  const isRectangle = shape.type === 'rectangle';
-  const isText = shape.type === 'text';
+  const handleLineStrokeColorChange = (color: string) => {
+    setLineStrokeColor(color);
+    onUpdateConnection({ stroke: color });
+  };
+
+  const handleLineStrokeWidthChange = (width: number) => {
+    setLineStrokeWidth(width);
+    debouncedConnectionUpdate({ strokeWidth: width });
+  };
+
+  const isRectangle = shape?.type === 'rectangle';
+  const isText = shape?.type === 'text';
 
   return (
     <div 
-      className="fixed top-20 left-4 glass-strong rounded-2xl shadow-2xl p-5 space-y-4 z-10 w-64 transform hover:scale-105 transition-all duration-300"
+      className="fixed top-20 left-4 glass-strong rounded-2xl shadow-2xl p-5 space-y-4 z-10 w-64 max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden transform hover:scale-105 transition-all duration-300 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200"
       role="region"
       aria-label="Shape properties"
       onClick={(e) => {
-        console.log('[PropertyPanel] Panel clicked, stopping propagation');
         e.stopPropagation();
       }}
       onMouseDown={(e) => {
-        console.log('[PropertyPanel] Panel mousedown, stopping propagation');
         e.stopPropagation();
       }}
     >
       {/* Header */}
       <div className="text-center bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl py-3 px-4 shadow-md">
-        <div className="text-xs font-medium opacity-90">Shape Properties</div>
-        <div className="text-lg font-bold capitalize">{shape.type}</div>
+        <div className="text-xs font-medium opacity-90">
+          {connection ? 'Connection Properties' : 'Shape Properties'}
+        </div>
+        <div className="text-lg font-bold capitalize">
+          {connection ? 'Line / Arrow' : shape?.type}
+        </div>
       </div>
 
       {/* Last Edited By Indicator */}
-      {shape.lastModifiedBy && shape.lastModifiedAt && (
+      {((shape?.lastModifiedBy && shape?.lastModifiedAt) || (connection?.lastModifiedBy && connection?.lastModifiedAt)) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
           <div className="text-xs text-gray-600 mb-1">Last edited by:</div>
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-800">
-              {getDisplayName(shape.lastModifiedBy)}
+              {getDisplayName((shape?.lastModifiedBy || connection?.lastModifiedBy)!)}
             </span>
             <span className="text-xs text-gray-500">
-              {getTimeAgo(
-                typeof shape.lastModifiedAt === 'number' 
-                  ? shape.lastModifiedAt 
-                  : shape.lastModifiedAt.toMillis?.() || Date.now()
-              )}
+              {(() => {
+                const timestamp = shape?.lastModifiedAt || connection?.lastModifiedAt;
+                if (!timestamp) return getTimeAgo(Date.now());
+                if (typeof timestamp === 'number') return getTimeAgo(timestamp);
+                return getTimeAgo((timestamp as any).toMillis?.() || Date.now());
+              })()}
             </span>
           </div>
         </div>
       )}
 
-      {/* Fill Color */}
-      <div>
-        <ColorPicker
-          label="Fill Color"
-          value={fillColor}
-          onChange={handleFillChange}
-        />
-      </div>
+      {/* Shape-specific Controls */}
+      {shape && (
+        <>
+          {/* Fill Color */}
+          <div>
+            <ColorPicker
+              label="Fill Color"
+              value={fillColor}
+              onChange={handleFillChange}
+            />
+          </div>
 
-      {/* Stroke (Border) Controls - Hidden for text shapes */}
-      {!isText && (
+          {/* Stroke (Border) Controls - Hidden for text shapes */}
+          {!isText && (
         <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-xs font-medium text-gray-700">
@@ -306,138 +335,6 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
         />
       </div>
 
-      {/* Text Formatting Controls (Text shapes only) */}
-      {isText && (
-        <div className="space-y-3 pt-2 border-t border-gray-200">
-          <div className="text-xs font-semibold text-gray-700">Text Formatting</div>
-          
-          {/* Font Size */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-700 block">
-              Font Size: {fontSize}px
-            </label>
-            <input
-              type="range"
-              min="8"
-              max="72"
-              value={fontSize}
-              onChange={(e) => handleFontSizeChange(Number(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-          </div>
-
-          {/* Font Family */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-700 block">
-              Font Family
-            </label>
-            <select
-              value={fontFamily}
-              onChange={(e) => handleFontFamilyChange(e.target.value)}
-              className="w-full px-2 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Arial">Arial</option>
-              <option value="Times New Roman">Times New Roman</option>
-              <option value="Courier New">Courier New</option>
-              <option value="Georgia">Georgia</option>
-              <option value="Verdana">Verdana</option>
-              <option value="Helvetica">Helvetica</option>
-              <option value="Comic Sans MS">Comic Sans MS</option>
-            </select>
-          </div>
-
-          {/* Text Style Toggles */}
-          <div className="flex gap-2">
-            <button
-              onClick={handleFontWeightToggle}
-              className={`flex-1 px-2 py-1 text-xs font-bold rounded-lg transition-colors ${
-                fontWeight === 'bold'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-              title="Bold"
-            >
-              B
-            </button>
-            <button
-              onClick={handleFontStyleToggle}
-              className={`flex-1 px-2 py-1 text-xs italic rounded-lg transition-colors ${
-                fontStyle === 'italic'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-              title="Italic"
-            >
-              I
-            </button>
-            <button
-              onClick={() => handleTextDecorationToggle('underline')}
-              className={`flex-1 px-2 py-1 text-xs underline rounded-lg transition-colors ${
-                textDecoration.includes('underline')
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-              title="Underline"
-            >
-              U
-            </button>
-            <button
-              onClick={() => handleTextDecorationToggle('line-through')}
-              className={`flex-1 px-2 py-1 text-xs line-through rounded-lg transition-colors ${
-                textDecoration.includes('line-through')
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-              title="Strikethrough"
-            >
-              S
-            </button>
-          </div>
-
-          {/* Text Alignment */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-700 block">
-              Text Alignment
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleTextAlignChange('left')}
-                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
-                  textAlign === 'left'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Align Left"
-              >
-                ⫿
-              </button>
-              <button
-                onClick={() => handleTextAlignChange('center')}
-                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
-                  textAlign === 'center'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Align Center"
-              >
-                ⊞
-              </button>
-              <button
-                onClick={() => handleTextAlignChange('right')}
-                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
-                  textAlign === 'right'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Align Right"
-              >
-                ⫾
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Transform Properties Display */}
       {(shape.rotation !== undefined && shape.rotation !== 0) || 
        (shape.scaleX !== undefined && shape.scaleX !== 1) || 
@@ -466,21 +363,97 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
         </div>
       ) : null}
 
-      {/* Corner Radius (Rectangles only) */}
-      {isRectangle && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-700 block">
-            Corner Radius: {cornerRadius}px
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="50"
-            value={cornerRadius}
-            onChange={(e) => handleCornerRadiusChange(Number(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-pink-500"
-          />
-        </div>
+          {/* Corner Radius (Rectangles only) */}
+          {isRectangle && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700 block">
+                Corner Radius: {cornerRadius}px
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="50"
+                value={cornerRadius}
+                onChange={(e) => handleCornerRadiusChange(Number(e.target.value))}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-pink-500"
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Connection-specific Controls */}
+      {connection && (
+        <>
+          {/* Arrow Configuration */}
+          <div className="space-y-3 pt-2 border-t border-gray-200">
+            <div className="text-xs font-semibold text-gray-700">Arrow Configuration</div>
+            
+            {/* Arrow Start */}
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-700">
+                Start Arrow
+              </label>
+              <button
+                onClick={handleArrowStartToggle}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+                  arrowStart
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                title="Toggle start arrow"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Arrow End */}
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-700">
+                End Arrow
+              </label>
+              <button
+                onClick={handleArrowEndToggle}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+                  arrowEnd
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                title="Toggle end arrow"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Line Color */}
+          <div>
+            <ColorPicker
+              label="Line Color"
+              value={lineStrokeColor}
+              onChange={handleLineStrokeColorChange}
+            />
+          </div>
+
+          {/* Line Width */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-700 block">
+              Line Width: {lineStrokeWidth}px
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="10"
+              value={lineStrokeWidth}
+              onChange={(e) => handleLineStrokeWidthChange(Number(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+        </>
       )}
 
       {/* Preview indicator */}

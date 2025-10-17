@@ -22,10 +22,37 @@ export const toUser = (firebaseUser: FirebaseUser): User => ({
 // Shape Types
 // ============================================================================
 
-export type ShapeType = 'rectangle' | 'circle' | 'text' | 'line' | 'process' | 'decision' | 'startEnd' | 'document' | 'database';
+export type ShapeType = 
+  | 'rectangle' 
+  | 'circle' 
+  | 'text' 
+  | 'line' 
+  | 'process' 
+  | 'decision' 
+  | 'startEnd' 
+  | 'document' 
+  | 'database'
+  // New geometric shapes
+  | 'triangle'
+  | 'rightTriangle'
+  | 'hexagon'
+  | 'octagon'
+  | 'ellipse'
+  // Form elements
+  | 'textInput'
+  | 'textarea'
+  | 'dropdown'
+  | 'radio'
+  | 'checkbox'
+  | 'button'
+  | 'toggle'
+  | 'slider';
 
 // Anchor point positions for connectors
-export type AnchorPosition = 'top' | 'right' | 'bottom' | 'left';
+export type AnchorPosition = 
+  | 'top' | 'right' | 'bottom' | 'left' 
+  | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  | 'top-center' | 'right-center' | 'bottom-center' | 'left-center';
 
 // Arrow types for connectors
 export type ArrowType = 'none' | 'end' | 'both';
@@ -72,9 +99,21 @@ export interface Shape {
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
   textDecoration?: string; // 'underline', 'line-through', or combination like 'underline line-through'
+  textColor?: string; // Text color (separate from shape fill), defaults to black or white based on luminance
   
   // Line-specific properties
   points?: [number, number, number, number]; // [x1, y1, x2, y2]
+  
+  // Form element-specific properties
+  formOptions?: {
+    placeholder?: string; // For text inputs
+    items?: string[]; // For dropdowns, radio buttons
+    label?: string; // For checkboxes, radio buttons, buttons
+    checked?: boolean; // For checkboxes, toggles
+    value?: number; // For sliders
+    min?: number; // For sliders
+    max?: number; // For sliders
+  };
   
   // Group membership
   groupId?: string; // ID of the group this shape belongs to (if any)
@@ -143,14 +182,25 @@ export type ShapeUpdateData = Partial<Omit<Shape, 'id' | 'createdBy' | 'createdA
 
 export interface Connection {
   id: string;
-  fromShapeId: string;
-  fromAnchor: AnchorPosition;
-  toShapeId: string;
-  toAnchor: AnchorPosition;
-  arrowType: ArrowType;
+  // From endpoint - either anchored to shape or free-floating
+  fromShapeId?: string;
+  fromAnchor?: AnchorPosition;
+  fromPoint?: { x: number; y: number };
+  // To endpoint - either anchored to shape or free-floating
+  toShapeId?: string;
+  toAnchor?: AnchorPosition;
+  toPoint?: { x: number; y: number };
+  // Arrow configuration
+  arrowStart?: boolean; // Show arrow at start
+  arrowEnd?: boolean; // Show arrow at end
+  arrowType?: ArrowType; // Legacy support, prefer arrowStart/arrowEnd
+  // Routing
+  orthogonalRouting?: boolean; // Use orthogonal (right-angle) routing
+  // Styling
   stroke?: string;
   strokeWidth?: number;
   label?: string; // For "Yes/No" labels on decision branches
+  // Metadata
   createdBy: string;
   createdAt: Timestamp;
   lastModifiedBy?: string;
@@ -160,11 +210,21 @@ export interface Connection {
 // Connection creation data
 export interface ConnectionCreateData {
   id?: string; // Optional ID (will be generated if not provided)
-  fromShapeId: string;
-  fromAnchor: AnchorPosition;
-  toShapeId: string;
-  toAnchor: AnchorPosition;
-  arrowType?: ArrowType;
+  // From endpoint
+  fromShapeId?: string;
+  fromAnchor?: AnchorPosition;
+  fromPoint?: { x: number; y: number };
+  // To endpoint
+  toShapeId?: string;
+  toAnchor?: AnchorPosition;
+  toPoint?: { x: number; y: number };
+  // Arrow configuration
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
+  arrowType?: ArrowType; // Legacy support
+  // Routing
+  orthogonalRouting?: boolean;
+  // Styling
   stroke?: string;
   strokeWidth?: number;
   label?: string;
@@ -289,6 +349,8 @@ export interface CanvasContextType {
   unresolveComment: (commentId: string) => Promise<void>;
   comments: Comment[];
   getShapeComments: (shapeId: string) => Comment[];
+  getShapeCommentCount: (shapeId: string) => number;
+  getShapeUnresolvedCommentCount: (shapeId: string) => number;
 }
 
 // ============================================================================

@@ -184,7 +184,10 @@ export function AIInput() {
       
       {/* Input Form */}
       <form onSubmit={handleSubmit} className="glass-strong rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center space-x-3" style={{ padding: shouldExpand ? '1rem' : '0.5rem' }}>
+        <div className="flex items-center" style={{ 
+          padding: shouldExpand ? '1rem' : '0.75rem',
+          gap: shouldExpand ? '0.75rem' : '0' 
+        }}>
           {/* AI Icon - Sparkles/Stars to indicate AI */}
           <div className="flex-shrink-0 relative group">
             <div 

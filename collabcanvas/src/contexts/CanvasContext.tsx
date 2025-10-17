@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
@@ -39,7 +39,7 @@ import {
 import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection, Component, ComponentUpdateData, Comment, CommentUpdateData } from '../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID } from '../utils/constants';
-import { doc, collection } from 'firebase/firestore';
+import { doc, collection, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
@@ -56,8 +56,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const stageRef = useRef<Konva.Stage>(null);
   
-  // Grid snapping
-  const [gridEnabled, setGridEnabled] = useState(false);
+  // Grid snapping - Load from localStorage or default to true
+  const [gridEnabled, setGridEnabled] = useState(() => {
+    const saved = localStorage.getItem('collabcanvas-grid-enabled');
+    return saved !== null ? saved === 'true' : true; // Default to true
+  });
   
   // Components state
   const [components, setComponents] = useState<Component[]>([]);
@@ -77,12 +80,33 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const {
     shapes,
     groups,
-    connections,
+    connections: connectionsFromFirestore,
     loading,
     addShape: addShapeHook,
     updateShape: updateShapeHook,
     deleteShape: deleteShapeHook,
   } = useCanvas(currentUser?.uid || 'anonymous', !authLoading);
+  
+  // Local optimistic connection updates (to provide immediate UI feedback)
+  const [optimisticConnectionUpdates, setOptimisticConnectionUpdates] = useState<Map<string, Partial<Connection>>>(new Map());
+  
+  // Merge Firestore connections with optimistic updates
+  const connections = useMemo(() => {
+    return connectionsFromFirestore.map(conn => {
+      const optimisticUpdate = optimisticConnectionUpdates.get(conn.id);
+      if (!optimisticUpdate) return conn;
+      
+      // Merge updates, and explicitly delete fields that are set to undefined
+      const merged = { ...conn, ...optimisticUpdate };
+      Object.keys(optimisticUpdate).forEach(key => {
+        if (optimisticUpdate[key as keyof typeof optimisticUpdate] === undefined) {
+          delete merged[key as keyof typeof merged];
+        }
+      });
+      
+      return merged;
+    });
+  }, [connectionsFromFirestore, optimisticConnectionUpdates]);
   
   // Backward compatibility: selectedId is the first selected shape (or null)
   const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
@@ -303,8 +327,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (id === null) {
       // Deselect all
       setSelectedIds([]);
+      setSelectedConnectionId(null);
       return;
     }
+    
+    // Deselect any selected connection when selecting a shape
+    setSelectedConnectionId(null);
     
     if (options?.shift) {
       // Shift+click: toggle shape in selection
@@ -326,6 +354,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * @param ids - Array of shape IDs to select
    */
   const selectMultipleShapes = (ids: string[]): void => {
+    // Deselect any selected connection when selecting shapes
+    setSelectedConnectionId(null);
     setSelectedIds(ids);
   };
 
@@ -1049,10 +1079,43 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateConnection = async (id: string, updates: ConnectionUpdateData): Promise<void> => {
     if (!currentUser) throw new Error('Must be logged in to update connections');
     
+    // Include lastModifiedBy in the actual Firebase update (not just optimistic)
+    const updatesWithMetadata = {
+      ...updates,
+      lastModifiedBy: currentUser.uid,
+    };
+    
+    // Optimistic update: immediately apply changes locally
+    // IMPORTANT: Keep undefined values - they signal fields to be deleted
+    const optimisticUpdate: any = {
+      ...updatesWithMetadata,
+      lastModifiedAt: Timestamp.now()
+    };
+    
+    setOptimisticConnectionUpdates(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, optimisticUpdate);
+      return newMap;
+    });
+    
     try {
-      await updateConnectionService(GLOBAL_CANVAS_ID, id, updates);
+      // Send update with lastModifiedBy to Firebase
+      await updateConnectionService(GLOBAL_CANVAS_ID, id, updatesWithMetadata);
+      
+      // Clear optimistic update after Firebase confirms
+      setOptimisticConnectionUpdates(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
     } catch (error) {
       console.error('Error updating connection:', error);
+      // Revert optimistic update on error
+      setOptimisticConnectionUpdates(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
       throw error;
     }
   };
@@ -1122,7 +1185,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   /**
-   * Clear all shapes and groups from the canvas
+   * Clear all shapes, groups, and connections from the canvas
    * Shows confirmation dialog and records as single undo/redo action
    */
   const clearAll = async (): Promise<void> => {
@@ -1145,8 +1208,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Single atomic operation to clear everything
       await clearAllShapesService(GLOBAL_CANVAS_ID);
       
-      // Clear selection
+      // Clear all selections
       setSelectedIds([]);
+      setSelectedConnectionId(null);
       return;
     }
 
@@ -1156,11 +1220,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       before[shape.id] = { ...shape };
     });
 
-    // Single atomic operation to clear everything from Firestore
+    // Single atomic operation to clear everything from Firestore (shapes, groups, and connections)
     await clearAllShapesService(GLOBAL_CANVAS_ID);
 
-    // Clear selection
+    // Clear all selections
     setSelectedIds([]);
+    setSelectedConnectionId(null);
 
     // Record as single delete action with groups information
     history.recordAction({
@@ -1364,7 +1429,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * Toggle grid snapping on/off
    */
   const toggleGrid = (): void => {
-    setGridEnabled(prev => !prev);
+    setGridEnabled(prev => {
+      const newValue = !prev;
+      localStorage.setItem('collabcanvas-grid-enabled', String(newValue));
+      return newValue;
+    });
   };
 
   /**
@@ -1582,6 +1651,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return comments.filter(comment => comment.shapeId === shapeId);
   };
 
+  /**
+   * Get total comment count for a shape (including resolved)
+   */
+  const getShapeCommentCount = (shapeId: string): number => {
+    return comments.filter(comment => comment.shapeId === shapeId).length;
+  };
+
+  /**
+   * Get unresolved comment count for a shape
+   */
+  const getShapeUnresolvedCommentCount = (shapeId: string): number => {
+    return comments.filter(comment => comment.shapeId === shapeId && !comment.resolved).length;
+  };
+
   const value: CanvasContextType = {
     shapes,
     groups,
@@ -1643,6 +1726,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     unresolveComment,
     comments,
     getShapeComments,
+    getShapeCommentCount,
+    getShapeUnresolvedCommentCount,
   };
 
   return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;

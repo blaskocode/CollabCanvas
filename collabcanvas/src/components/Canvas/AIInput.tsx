@@ -13,7 +13,7 @@ export function AIInput() {
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<string>('');
   
-  const { shapes, addShape, updateShape, deleteShape, alignShapes, distributeShapes } = useCanvasContext();
+  const { shapes, addShape, updateShape, deleteShape, alignShapes, distributeShapes, stageRef } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
 
@@ -41,7 +41,7 @@ export function AIInput() {
           // addShape doesn't return ID, but creates shape in Firestore
           // We generate a temporary ID for tracking
           const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          await addShape(type as any, position);
+          await addShape(type as any, position, properties);
           // Note: The actual shape will have a different ID assigned by Firestore
           // For now, return temp ID for AI response tracking
           return tempId;
@@ -68,15 +68,49 @@ export function AIInput() {
         }
       };
       
+      // Calculate viewport center in canvas coordinates
+      const stage = stageRef?.current;
+      let viewportCenter = { x: 2500, y: 2500 }; // Default to canvas center
+      
+      if (stage) {
+        const viewportCenterScreen = {
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2
+        };
+        
+        // Convert screen coordinates to canvas coordinates accounting for pan and zoom
+        viewportCenter = {
+          x: (viewportCenterScreen.x - stage.x()) / stage.scaleX(),
+          y: (viewportCenterScreen.y - stage.y()) / stage.scaleY()
+        };
+        
+        console.log('[AIInput] Viewport center:', viewportCenter);
+      }
+      
       // Run AI agent
       console.log('[AIInput] Running AI agent with command:', command);
-      const result = await runAIAgent(command, shapes, operations);
+      const result = await runAIAgent(command, shapes, operations, viewportCenter);
       
       if (result.error) {
         toast.error(result.error);
         setLastResult(`Error: ${result.error}`);
       } else {
-        const summary = `Created ${result.shapesCreated.length} shape(s), modified ${result.shapesModified.length} shape(s)`;
+        // Create better success message for multiple shapes
+        let summary = '';
+        if (result.shapesCreated.length > 0 && result.shapesModified.length > 0) {
+          summary = `Created ${result.shapesCreated.length} shape(s) and modified ${result.shapesModified.length} shape(s)`;
+        } else if (result.shapesCreated.length > 0) {
+          summary = result.shapesCreated.length === 1 
+            ? 'Created 1 shape' 
+            : `Created ${result.shapesCreated.length} shapes`;
+        } else if (result.shapesModified.length > 0) {
+          summary = result.shapesModified.length === 1
+            ? 'Modified 1 shape'
+            : `Modified ${result.shapesModified.length} shapes`;
+        } else {
+          summary = 'Operation completed';
+        }
+        
         toast.success(summary);
         setLastResult(result.interpretation || summary);
         setCommand(''); // Clear input on success
@@ -96,10 +130,10 @@ export function AIInput() {
    * Example commands for quick testing
    */
   const exampleCommands = [
-    'Create a red circle at center',
-    'Make 3 blue rectangles',
+    'Create 5 colorful circles',
+    'Make all rectangles blue',
     'Create a login form',
-    'Align them horizontally'
+    'Delete all circles'
   ];
 
   const fillExample = (cmd: string) => {
@@ -149,7 +183,7 @@ export function AIInput() {
             type="text"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            placeholder="Ask AI: 'Create a red circle' or 'Make a login form'..."
+            placeholder="Ask AI: 'Create 5 circles', 'Make all rectangles red', etc..."
             disabled={loading}
             className="flex-1 bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 text-sm disabled:opacity-50"
             aria-label="AI command input"
@@ -196,10 +230,10 @@ export function AIInput() {
         )}
       </form>
       
-      {/* Powered by Claude badge */}
+      {/* Powered by OpenAI badge */}
       <div className="text-center mt-2">
         <span className="text-xs text-gray-500">
-          Powered by <span className="font-semibold text-purple-600">Claude AI</span>
+          Powered by <span className="font-semibold text-purple-600">OpenAI</span>
         </span>
       </div>
     </div>

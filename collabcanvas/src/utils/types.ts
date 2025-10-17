@@ -62,6 +62,10 @@ export interface Shape {
   fontSize?: number;
   fontFamily?: string;
   textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: string; // 'underline', 'line-through', or combination like 'underline line-through'
   
   // Line-specific properties
   points?: [number, number, number, number]; // [x1, y1, x2, y2]
@@ -108,12 +112,19 @@ export interface ShapeCreateData {
   scaleX?: number;
   scaleY?: number;
   
+  // Layer management
+  zIndex?: number;
+  
   // Shape-specific properties
   radius?: number;
   text?: string;
   fontSize?: number;
   fontFamily?: string;
   textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: string;
   points?: [number, number, number, number];
 }
 
@@ -172,7 +183,7 @@ export interface CanvasContextType {
   selectedIds: string[]; // New: multi-select support
   loading: boolean;
   stageRef: React.RefObject<any> | null;
-  addShape: (type: ShapeType, position: { x: number; y: number }) => Promise<void>;
+  addShape: (type: ShapeType, position: { x: number; y: number }, customProperties?: Partial<ShapeCreateData>) => Promise<void>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;
   selectShape: (id: string | null, options?: { shift?: boolean }) => void;
@@ -190,12 +201,14 @@ export interface CanvasContextType {
   ungroupShapes: (groupId: string) => Promise<void>;
   deleteGroup: (groupId: string) => Promise<void>; // Deletes group and all children
   updateGroupStyle: (groupId: string, styleUpdates: Partial<Pick<Shape, 'fill' | 'stroke' | 'strokeWidth' | 'opacity'>>) => Promise<void>;
+  updateGroupBounds: (groupId: string) => Promise<void>; // Updates group bounding box
   duplicateGroup: (groupId: string) => Promise<string>; // Returns new group ID
   getGroupShapes: (groupId: string) => Shape[]; // Get all shapes in a group (recursive)
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  clearAll: () => Promise<void>;
 }
 
 // ============================================================================

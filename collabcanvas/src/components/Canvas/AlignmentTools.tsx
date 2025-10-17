@@ -21,7 +21,7 @@ const AlignmentTools: React.FC<AlignmentToolsProps> = ({
   onUngroup,
   hasGroupedShapes = false,
 }) => {
-  if (selectedCount < 1) return null;
+  if (selectedCount < 2) return null;
 
   return (
     <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-3 flex flex-col gap-2 z-50">

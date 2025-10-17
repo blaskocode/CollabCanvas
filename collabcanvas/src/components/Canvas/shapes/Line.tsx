@@ -18,8 +18,11 @@ interface LineProps {
   currentUserId: string | null;
   onSelect: (e?: any) => void;
   onDragStart?: () => void;
+  onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
   onPointsChange?: (points: [number, number, number, number]) => void;
+  onContextMenu?: (e: any) => void;
+  onRef?: (node: any) => void;
 }
 
 /**
@@ -42,11 +45,21 @@ const Line: React.FC<LineProps> = ({
   currentUserId,
   onSelect,
   onDragStart,
+  onDragMove,
   onDragEnd,
   onPointsChange,
+  onContextMenu,
+  onRef,
 }) => {
   const lineRef = React.useRef<Konva.Line>(null);
   const [isDraggingPoint, setIsDraggingPoint] = React.useState<number | null>(null);
+  
+  // Call onRef callback when ref changes
+  React.useEffect(() => {
+    if (onRef) {
+      onRef(lineRef.current);
+    }
+  }, [onRef]);
 
   /**
    * Handle line click to select
@@ -62,6 +75,16 @@ const Line: React.FC<LineProps> = ({
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true;
     onSelect(e);
+  };
+
+  /**
+   * Handle context menu (right-click)
+   */
+  const handleContextMenu = (e: any) => {
+    e.cancelBubble = true;
+    if (onContextMenu) {
+      onContextMenu(e);
+    }
   };
 
   /**
@@ -105,7 +128,7 @@ const Line: React.FC<LineProps> = ({
   };
 
   /**
-   * Constrain drag bounds during dragging
+   * Constrain drag bounds during dragging and notify parent for multi-select/group drag
    */
   const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
@@ -127,6 +150,11 @@ const Line: React.FC<LineProps> = ({
     const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - lineHeight));
 
     node.position({ x: constrainedX, y: constrainedY });
+    
+    // Notify parent for multi-select/group drag
+    if (onDragMove) {
+      onDragMove(constrainedX, constrainedY);
+    }
   };
 
   /**
@@ -189,10 +217,12 @@ const Line: React.FC<LineProps> = ({
         points={points}
         stroke={finalStroke}
         strokeWidth={finalStrokeWidth}
+        hitStrokeWidth={Math.max(finalStrokeWidth, 12)} // Larger hit area for easier selection
         opacity={opacity / 100} // Convert 0-100 to 0-1
         draggable={!isLockedByOtherUser && isDraggingPoint === null}
         onClick={handleClick}
         onTap={handleTap}
+        onContextMenu={handleContextMenu}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragMove={handleDragMove}

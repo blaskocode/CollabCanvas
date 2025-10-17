@@ -1,15 +1,18 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Stage, Layer, Transformer, Rect } from 'react-konva';
+import { Stage, Layer, Transformer, Rect, Circle as KonvaCircle, Line as KonvaLine } from 'react-konva';
 import type Konva from 'konva';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { useCanvasContext } from '../../contexts/CanvasContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, DEFAULT_SHAPE_WIDTH, DEFAULT_SHAPE_HEIGHT, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN } from '../../utils/constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN, GLOBAL_CANVAS_ID } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
 import PropertyPanel from './PropertyPanel';
 import AlignmentTools from './AlignmentTools';
 import AIInput from './AIInput';
+import ContextMenu from './ContextMenu';
 import Shape from './Shape';
 import Rectangle from './shapes/Rectangle';
 import Circle from './shapes/Circle';
@@ -25,7 +28,7 @@ import type { Shape as ShapeType } from '../../utils/types';
  * Handles pan, zoom, and shape rendering
  */
 const Canvas: React.FC = () => {
-  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo } = useCanvasContext();
+  const { shapes, groups, selectedId, selectedIds, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, clearAll } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
@@ -41,6 +44,7 @@ const Canvas: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const panStartRef = useRef<{ x: number; y: number; stageX: number; stageY: number } | null>(null);
+  const isDraggingShapeRef = useRef(false); // Track shape drag to prevent pan conflicts
   
   // Multiplayer cursors
   const { cursors, updateCursor } = useCursors(
@@ -64,7 +68,22 @@ const Canvas: React.FC = () => {
   const autoPanFrameId = useRef<number | null>(null);
   
   // Group dragging state
-  const groupDragRef = useRef<{ groupId: string; initialPositions: Map<string, { x: number; y: number }> } | null>(null);
+  const groupDragRef = useRef<{ groupId: string; initialPositions: Map<string, { x: number; y: number }>; draggedShapeId: string } | null>(null);
+  
+  // Multi-select dragging state (for non-grouped shapes)
+  const multiSelectDragRef = useRef<{ initialPositions: Map<string, { x: number; y: number }>; draggedShapeId: string } | null>(null);
+  
+  // Store Konva node references for real-time drag updates
+  const shapeNodesRef = useRef<Map<string, any>>(new Map());
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; shapeId: string } | null>(null);
+
+  // Drawing mode state
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [drawingShapeType, setDrawingShapeType] = useState<ShapeType['type'] | null>(null);
+  const [drawingPreview, setDrawingPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const drawingStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Transformer refs for resize/rotate functionality
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -153,9 +172,11 @@ const Canvas: React.FC = () => {
         return;
       }
 
-      // Escape key: deselect current selection
+      // Escape key: exit drawing mode or deselect current selection
       if (e.key === 'Escape') {
-        if (selectedIds.length > 0) {
+        if (isDrawingMode) {
+          exitDrawingMode();
+        } else if (selectedIds.length > 0) {
           selectShape(null);
           lastSelectedGroupRef.current = null; // Reset two-click selection
         }
@@ -408,77 +429,398 @@ const Canvas: React.FC = () => {
   }, [isDraggingShape, stagePos, stageScale, dimensions]);
 
   /**
-   * Handle shape drag start - enables auto-pan and locks group shapes
+   * Handle shape drag start - enables auto-pan and locks group/multi-select shapes
    */
   const handleShapeDragStart = useCallback((shapeId: string) => {
+    console.log('[handleShapeDragStart]', shapeId);
     setIsDraggingShape(true);
+    isDraggingShapeRef.current = true; // Prevent pan conflicts
     
     const shape = shapes.find(s => s.id === shapeId);
-    if (!shape || !shape.groupId || !currentUser) return;
+    if (!shape || !currentUser) return;
     
     // Check if dragging a grouped shape
-    const group = groups.find(g => g.id === shape.groupId);
-    if (!group) return;
-    
-    // Check if all shapes in the group are selected
-    const allSelected = group.shapeIds.every(id => selectedIds.includes(id));
-    
-    if (allSelected) {
-      // Save initial positions for all shapes in the group
-      const initialPositions = new Map<string, { x: number; y: number }>();
-      group.shapeIds.forEach(id => {
-        const groupShape = shapes.find(s => s.id === id);
-        if (groupShape) {
-          initialPositions.set(id, { x: groupShape.x, y: groupShape.y });
-        }
+    if (shape.groupId) {
+      const group = groups.find(g => g.id === shape.groupId);
+      if (!group) return;
+      
+      // Check how many shapes in this group are currently selected
+      const selectedGroupShapes = selectedIds.filter(id => {
+        const s = shapes.find(sh => sh.id === id);
+        return s && s.groupId === shape.groupId;
       });
       
-      groupDragRef.current = {
-        groupId: group.id,
-        initialPositions
-      };
-      
-      // Lock all shapes in the group
-      group.shapeIds.forEach(id => {
-        const groupShape = shapes.find(s => s.id === id);
-        if (groupShape && (!groupShape.isLocked || groupShape.lockedBy === currentUser.uid)) {
-          lockShape(id).catch(err => console.error('Error locking group shape:', err));
+      // If only this one shape is selected (double-clicked for individual edit), keep it that way
+      if (selectedGroupShapes.length === 1 && selectedGroupShapes[0] === shapeId) {
+        console.log('[handleShapeDragStart] Individual shape edit mode (double-clicked)');
+        // This will fall through to normal single shape drag
+      } else {
+        // Otherwise, this is a group drag operation
+        // Select all shapes in the group if not already selected
+        const allSelected = group.shapeIds.every(id => selectedIds.includes(id));
+        if (!allSelected) {
+          selectMultipleShapes(group.shapeIds);
+          console.log('[handleShapeDragStart] Auto-selected entire group:', group.id);
         }
-      });
+        
+        // Save initial positions for all shapes in the group
+        const initialPositions = new Map<string, { x: number; y: number }>();
+        group.shapeIds.forEach(id => {
+          const groupShape = shapes.find(s => s.id === id);
+          if (groupShape) {
+            initialPositions.set(id, { x: groupShape.x, y: groupShape.y });
+          }
+        });
+        
+        groupDragRef.current = {
+          groupId: group.id,
+          initialPositions,
+          draggedShapeId: shapeId // Track which shape is being dragged
+        };
+        
+        // Lock all shapes in the group
+        group.shapeIds.forEach(id => {
+          const groupShape = shapes.find(s => s.id === id);
+          if (groupShape && (!groupShape.isLocked || groupShape.lockedBy === currentUser.uid)) {
+            lockShape(id).catch(err => console.error('Error locking group shape:', err));
+          }
+        });
+        return; // Exit early, group drag is set up
+      }
     }
-  }, [shapes, groups, selectedIds, currentUser, lockShape]);
+    
+    // If we get here, it's not a group drag (either single shape or individual shape from group)
+    // Select the shape immediately if it's not already selected
+    if (!selectedIds.includes(shapeId)) {
+      selectShape(shapeId);
+      console.log('[handleShapeDragStart] Auto-selected shape:', shapeId);
+    }
+    
+    // Check if dragging a multi-selected (non-grouped) shape
+    if (selectedIds.length > 1 && selectedIds.includes(shapeId) && !shape.groupId) {
+      // Save initial positions for all selected NON-GROUPED shapes
+      const initialPositions = new Map<string, { x: number; y: number }>();
+      selectedIds.forEach(id => {
+        const selectedShape = shapes.find(s => s.id === id);
+        // Only include non-grouped shapes in multi-select drag
+        if (selectedShape && !selectedShape.groupId) {
+          initialPositions.set(id, { x: selectedShape.x, y: selectedShape.y });
+        }
+      });
+      
+      // Only set multi-select drag if we have shapes to drag
+      if (initialPositions.size > 1) { // Need at least 2 shapes for multi-drag
+        multiSelectDragRef.current = {
+          initialPositions,
+          draggedShapeId: shapeId // Track which shape is being dragged
+        };
+        
+        // Lock all selected non-grouped shapes
+        Array.from(initialPositions.keys()).forEach(id => {
+          const selectedShape = shapes.find(s => s.id === id);
+          if (selectedShape && (!selectedShape.isLocked || selectedShape.lockedBy === currentUser.uid)) {
+            lockShape(id).catch(err => console.error('Error locking selected shape:', err));
+          }
+        });
+      }
+    }
+  }, [shapes, groups, selectedIds, currentUser, lockShape, selectShape, selectMultipleShapes]);
+
+  /**
+   * Handle shape drag move - updates other shapes' visual positions in real-time
+   * This provides immediate visual feedback during group and multi-select drags
+   * Also enforces boundary constraints so no shape goes outside the canvas
+   */
+  const handleShapeDragMove = useCallback((shapeId: string, x: number, y: number) => {
+    const groupDrag = groupDragRef.current;
+    const multiSelectDrag = multiSelectDragRef.current;
+    
+    // Group drag - move all shapes in the group together
+    if (groupDrag && groupDrag.draggedShapeId === shapeId) {
+      const initialPos = groupDrag.initialPositions.get(shapeId);
+      if (!initialPos) return;
+      
+      let deltaX = x - initialPos.x;
+      let deltaY = y - initialPos.y;
+      
+      // Calculate bounds of all shapes to enforce canvas boundaries
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      groupDrag.initialPositions.forEach((pos, id) => {
+        const shape = shapes.find(s => s.id === id);
+        if (shape) {
+          const newX = pos.x + deltaX;
+          const newY = pos.y + deltaY;
+          
+          // Calculate bounds based on shape type
+          if (shape.type === 'circle' && shape.radius) {
+            minX = Math.min(minX, newX - shape.radius);
+            maxX = Math.max(maxX, newX + shape.radius);
+            minY = Math.min(minY, newY - shape.radius);
+            maxY = Math.max(maxY, newY + shape.radius);
+          } else if (shape.type === 'line' && shape.points) {
+            const [x1, y1, x2, y2] = shape.points;
+            minX = Math.min(minX, newX + Math.min(x1, x2));
+            maxX = Math.max(maxX, newX + Math.max(x1, x2));
+            minY = Math.min(minY, newY + Math.min(y1, y2));
+            maxY = Math.max(maxY, newY + Math.max(y1, y2));
+          } else {
+            minX = Math.min(minX, newX);
+            maxX = Math.max(maxX, newX + (shape.width || 0));
+            minY = Math.min(minY, newY);
+            maxY = Math.max(maxY, newY + (shape.height || 0));
+          }
+        }
+      });
+      
+      // Constrain delta to keep all shapes within canvas
+      if (minX < 0) deltaX -= minX;
+      if (minY < 0) deltaY -= minY;
+      if (maxX > CANVAS_WIDTH) deltaX -= (maxX - CANVAS_WIDTH);
+      if (maxY > CANVAS_HEIGHT) deltaY -= (maxY - CANVAS_HEIGHT);
+      
+      // Update the dragged shape node first
+      const draggedNode = shapeNodesRef.current.get(shapeId);
+      if (draggedNode) {
+        draggedNode.position({
+          x: initialPos.x + deltaX,
+          y: initialPos.y + deltaY
+        });
+      }
+      
+      // Update all other shapes in the group
+      groupDrag.initialPositions.forEach((pos, id) => {
+        if (id !== shapeId) {
+          const node = shapeNodesRef.current.get(id);
+          if (node) {
+            node.position({
+              x: pos.x + deltaX,
+              y: pos.y + deltaY
+            });
+          }
+        }
+      });
+      
+      // Update the layer to reflect changes
+      const stage = stageRef?.current;
+      if (stage) {
+        const layer = stage.findOne('Layer');
+        layer?.batchDraw();
+      }
+    }
+    // Multi-select drag - move all selected shapes together
+    else if (multiSelectDrag && multiSelectDrag.draggedShapeId === shapeId) {
+      const initialPos = multiSelectDrag.initialPositions.get(shapeId);
+      if (!initialPos) return;
+      
+      let deltaX = x - initialPos.x;
+      let deltaY = y - initialPos.y;
+      
+      // Calculate bounds of all shapes to enforce canvas boundaries
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      multiSelectDrag.initialPositions.forEach((pos, id) => {
+        const shape = shapes.find(s => s.id === id);
+        if (shape) {
+          const newX = pos.x + deltaX;
+          const newY = pos.y + deltaY;
+          
+          // Calculate bounds based on shape type
+          if (shape.type === 'circle' && shape.radius) {
+            minX = Math.min(minX, newX - shape.radius);
+            maxX = Math.max(maxX, newX + shape.radius);
+            minY = Math.min(minY, newY - shape.radius);
+            maxY = Math.max(maxY, newY + shape.radius);
+          } else if (shape.type === 'line' && shape.points) {
+            const [x1, y1, x2, y2] = shape.points;
+            minX = Math.min(minX, newX + Math.min(x1, x2));
+            maxX = Math.max(maxX, newX + Math.max(x1, x2));
+            minY = Math.min(minY, newY + Math.min(y1, y2));
+            maxY = Math.max(maxY, newY + Math.max(y1, y2));
+          } else {
+            minX = Math.min(minX, newX);
+            maxX = Math.max(maxX, newX + (shape.width || 0));
+            minY = Math.min(minY, newY);
+            maxY = Math.max(maxY, newY + (shape.height || 0));
+          }
+        }
+      });
+      
+      // Constrain delta to keep all shapes within canvas
+      if (minX < 0) deltaX -= minX;
+      if (minY < 0) deltaY -= minY;
+      if (maxX > CANVAS_WIDTH) deltaX -= (maxX - CANVAS_WIDTH);
+      if (maxY > CANVAS_HEIGHT) deltaY -= (maxY - CANVAS_HEIGHT);
+      
+      // Update the dragged shape node first
+      const draggedNode = shapeNodesRef.current.get(shapeId);
+      if (draggedNode) {
+        draggedNode.position({
+          x: initialPos.x + deltaX,
+          y: initialPos.y + deltaY
+        });
+      }
+      
+      // Update all other selected shapes
+      multiSelectDrag.initialPositions.forEach((pos, id) => {
+        if (id !== shapeId) {
+          const node = shapeNodesRef.current.get(id);
+          if (node) {
+            node.position({
+              x: pos.x + deltaX,
+              y: pos.y + deltaY
+            });
+          }
+        }
+      });
+      
+      // Update the layer to reflect changes
+      const stage = stageRef?.current;
+      if (stage) {
+        const layer = stage.findOne('Layer');
+        layer?.batchDraw();
+      }
+    }
+  }, [stageRef, shapes]);
+
+  /**
+   * Update multiple shapes atomically in a single Firestore write
+   * Prevents race conditions during multi-select and group drag
+   * Optionally updates group bounds in the same transaction
+   */
+  const updateShapesAtomic = async (updates: Map<string, { x: number; y: number }>, groupId?: string) => {
+    if (updates.size === 0) return;
+    
+    const canvasRef = doc(db, 'canvas', GLOBAL_CANVAS_ID);
+    const canvasSnap = await getDoc(canvasRef);
+    const currentData = canvasSnap.data() as any;
+    
+    const now = Timestamp.now();
+    const updatedShapes = currentData.shapes.map((shape: any) => {
+      const update = updates.get(shape.id);
+      if (update) {
+        console.log(`[updateShapesAtomic] Updating ${shape.id}: (${shape.x}, ${shape.y}) → (${update.x}, ${update.y})`);
+        return {
+          ...shape,
+          x: update.x,
+          y: update.y,
+          lastModifiedAt: now,
+        };
+      }
+      return shape;
+    });
+
+    // If a groupId is provided, calculate and update group bounds
+    let updatedGroups = currentData.groups || [];
+    if (groupId) {
+      const group = updatedGroups.find((g: any) => g.id === groupId);
+      if (group) {
+        // Get shapes in this group using the updated positions
+        const groupShapes = updatedShapes.filter((s: any) => group.shapeIds.includes(s.id));
+        
+        // Calculate new bounding box (accounting for different shape types)
+        const bounds = groupShapes.map((shape: any) => {
+          if (shape.type === 'circle' && shape.radius) {
+            // Circle: x,y is the center, calculate bounding box from radius
+            return {
+              x: shape.x - shape.radius,
+              y: shape.y - shape.radius,
+              width: shape.radius * 2,
+              height: shape.radius * 2
+            };
+          } else if (shape.type === 'line' && shape.points) {
+            // Line: calculate bounding box from points
+            const [x1, y1, x2, y2] = shape.points;
+            const minX = Math.min(x1, x2);
+            const maxX = Math.max(x1, x2);
+            const minY = Math.min(y1, y2);
+            const maxY = Math.max(y1, y2);
+            return {
+              x: shape.x + minX,
+              y: shape.y + minY,
+              width: maxX - minX,
+              height: maxY - minY
+            };
+          } else {
+            // Rectangle/Text: standard bounding box
+            return {
+              x: shape.x,
+              y: shape.y,
+              width: shape.width || 0,
+              height: shape.height || 0
+            };
+          }
+        });
+        
+        const minX = Math.min(...bounds.map((b: { x: number }) => b.x));
+        const minY = Math.min(...bounds.map((b: { y: number }) => b.y));
+        const maxX = Math.max(...bounds.map((b: { x: number; width: number }) => b.x + b.width));
+        const maxY = Math.max(...bounds.map((b: { y: number; height: number }) => b.y + b.height));
+        
+        // Update group bounds
+        updatedGroups = updatedGroups.map((g: any) => 
+          g.id === groupId
+            ? { ...g, x: minX, y: minY, width: maxX - minX, height: maxY - minY, lastModifiedAt: now }
+            : g
+        );
+        
+        console.log(`[updateShapesAtomic] Updated group ${groupId} bounds: (${minX}, ${minY}) ${maxX - minX}x${maxY - minY}`);
+      }
+    }
+
+    await updateDoc(canvasRef, {
+      shapes: updatedShapes,
+      groups: updatedGroups,
+      lastUpdated: serverTimestamp(),
+    });
+    
+    console.log(`[updateShapesAtomic] Updated ${updates.size} shapes atomically${groupId ? ' with group bounds' : ''}`);
+  };
 
   /**
    * Handle shape drag end - disables auto-pan and updates position(s)
    */
   const handleShapeDragEnd = useCallback(async (shapeId: string, x: number, y: number) => {
+    console.log('[handleShapeDragEnd]', shapeId, 'at', x, y);
     setIsDraggingShape(false);
+    isDraggingShapeRef.current = false; // Allow panning again
+    
+    // Clear any pan state to prevent accidental panning
+    setIsPanning(false);
+    panStartRef.current = null;
+    console.log('[handleShapeDragEnd] Cleared pan state');
     
     const groupDrag = groupDragRef.current;
+    const multiSelectDrag = multiSelectDragRef.current;
     
     if (groupDrag) {
-      // Dragging a group - calculate delta and move all shapes
+      // Dragging a group - calculate delta and move all shapes atomically
       const initialPos = groupDrag.initialPositions.get(shapeId);
       if (initialPos) {
         const deltaX = x - initialPos.x;
         const deltaY = y - initialPos.y;
         
-        // Update all shapes in the group
+        console.log(`[Group Drag] Delta: (${deltaX}, ${deltaY})`);
+        
         try {
-          await Promise.all(
-            Array.from(groupDrag.initialPositions.entries()).map(([id, pos]) => {
-              const newX = pos.x + deltaX;
-              const newY = pos.y + deltaY;
-              return updateShape(id, { x: newX, y: newY });
-            })
-          );
+          // Calculate all new positions
+          const updates = new Map<string, { x: number; y: number }>();
+          Array.from(groupDrag.initialPositions.entries()).forEach(([id, pos]) => {
+            updates.set(id, {
+              x: pos.x + deltaX,
+              y: pos.y + deltaY
+            });
+          });
+          
+          // Apply all updates in a single atomic Firestore write (including group bounds)
+          await updateShapesAtomic(updates, groupDrag.groupId);
           
           // Unlock all shapes in the group
           const group = groups.find(g => g.id === groupDrag.groupId);
           if (group) {
-            group.shapeIds.forEach(id => {
-              unlockShape(id).catch(err => console.error('Error unlocking group shape:', err));
-            });
+            await Promise.all(
+              group.shapeIds.map(id => 
+                unlockShape(id).catch(err => console.error('Error unlocking group shape:', err))
+              )
+            );
           }
         } catch (error) {
           console.error('Error updating group positions:', error);
@@ -487,12 +829,62 @@ const Canvas: React.FC = () => {
       }
       
       groupDragRef.current = null;
+    } else if (multiSelectDrag) {
+      // Dragging multiple selected shapes - calculate delta and move all atomically
+      const initialPos = multiSelectDrag.initialPositions.get(shapeId);
+      if (initialPos) {
+        const deltaX = x - initialPos.x;
+        const deltaY = y - initialPos.y;
+        
+        console.log(`[Multi-Select Drag] Delta: (${deltaX}, ${deltaY})`);
+        
+        try {
+          // Calculate all new positions
+          const updates = new Map<string, { x: number; y: number }>();
+          Array.from(multiSelectDrag.initialPositions.entries()).forEach(([id, pos]) => {
+            updates.set(id, {
+              x: pos.x + deltaX,
+              y: pos.y + deltaY
+            });
+          });
+          
+          // Apply all updates in a single atomic Firestore write
+          await updateShapesAtomic(updates);
+          
+          // Unlock all selected shapes
+          await Promise.all(
+            Array.from(multiSelectDrag.initialPositions.keys()).map(id =>
+              unlockShape(id).catch(err => console.error('Error unlocking selected shape:', err))
+            )
+          );
+        } catch (error) {
+          console.error('Error updating selected shapes positions:', error);
+          toast.error('Failed to move selected shapes');
+        }
+      }
+      
+      multiSelectDragRef.current = null;
     } else {
       // Normal single shape drag
       try {
-        await updateShape(shapeId, { x, y });
+        // Check if this shape belongs to a group
+        const shapeGroup = groups.find(g => g.shapeIds.includes(shapeId));
+        
+        if (shapeGroup) {
+          // Shape is in a group - use atomic update to update both shape and group bounds
+          const updates = new Map<string, { x: number; y: number }>();
+          updates.set(shapeId, { x, y });
+          await updateShapesAtomic(updates, shapeGroup.id);
+          console.log(`[Single Shape Drag] Updated shape ${shapeId} and group ${shapeGroup.id} bounds`);
+        } else {
+          // Shape is not in a group - use normal update
+          await updateShape(shapeId, { x, y });
+        }
+        
+        await unlockShape(shapeId);
       } catch (error) {
         console.error('Error updating shape position:', error);
+        toast.error('Failed to move shape');
       }
     }
   }, [shapes, groups, updateShape, unlockShape, toast]);
@@ -541,7 +933,7 @@ const Canvas: React.FC = () => {
   };
   
   /**
-   * Handle stage mouse down - start box select
+   * Handle stage mouse down - start box select or drawing
    */
   const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
@@ -553,8 +945,18 @@ const Canvas: React.FC = () => {
     const pos = stage.getPointerPosition();
     if (!pos) return;
     
-    // Start panning if Space is pressed
-    if (isSpacePressed) {
+    const canvasX = (pos.x - stage.x()) / stage.scaleX();
+    const canvasY = (pos.y - stage.y()) / stage.scaleY();
+    
+    // Handle drawing mode
+    if (isDrawingMode && drawingShapeType && e.evt.button === 0) {
+      drawingStartRef.current = { x: canvasX, y: canvasY };
+      setDrawingPreview({ x: canvasX, y: canvasY, width: 0, height: 0 });
+      return;
+    }
+    
+    // Start panning if Space is pressed (but not if dragging a shape)
+    if (isSpacePressed && !isDraggingShapeRef.current) {
       setIsPanning(true);
       panStartRef.current = {
         x: pos.x,
@@ -567,16 +969,13 @@ const Canvas: React.FC = () => {
     
     // Start box selection on single-click drag
     if (e.evt.button === 0) {
-      const canvasX = (pos.x - stage.x()) / stage.scaleX();
-      const canvasY = (pos.y - stage.y()) / stage.scaleY();
-      
       setIsBoxSelecting(true);
       setBoxSelect({ x1: canvasX, y1: canvasY, x2: canvasX, y2: canvasY });
     }
   };
   
   /**
-   * Handle stage mouse move - update box select
+   * Handle stage mouse move - update box select or drawing preview
    */
   const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
@@ -585,8 +984,20 @@ const Canvas: React.FC = () => {
     const pos = stage.getPointerPosition();
     if (!pos) return;
     
-    // Handle panning
-    if (isPanning && panStartRef.current) {
+    const canvasX = (pos.x - stage.x()) / stage.scaleX();
+    const canvasY = (pos.y - stage.y()) / stage.scaleY();
+    
+    // Handle drawing preview
+    if (isDrawingMode && drawingStartRef.current) {
+      const start = drawingStartRef.current;
+      const width = canvasX - start.x;
+      const height = canvasY - start.y;
+      setDrawingPreview({ x: start.x, y: start.y, width, height });
+      return;
+    }
+    
+    // Handle panning (but not if dragging a shape)
+    if (isPanning && panStartRef.current && !isDraggingShapeRef.current) {
       const dx = pos.x - panStartRef.current.x;
       const dy = pos.y - panStartRef.current.y;
       
@@ -600,16 +1011,61 @@ const Canvas: React.FC = () => {
     
     // Handle box selection
     if (isBoxSelecting && boxSelect) {
-      const canvasX = (pos.x - stage.x()) / stage.scaleX();
-      const canvasY = (pos.y - stage.y()) / stage.scaleY();
       setBoxSelect({ ...boxSelect, x2: canvasX, y2: canvasY });
     }
   };
   
   /**
-   * Handle stage mouse up - complete box select
+   * Handle stage mouse up - complete box select or drawing
    */
-  const handleStageMouseUp = () => {
+  const handleStageMouseUp = async () => {
+    // Handle drawing completion
+    if (isDrawingMode && drawingStartRef.current && drawingPreview && drawingShapeType) {
+      const { x, y, width, height } = drawingPreview;
+      
+      // Only create shape if it has meaningful size (at least 5px in each dimension)
+      if (Math.abs(width) > 5 && Math.abs(height) > 5) {
+        // Normalize coordinates (handle negative width/height from dragging in different directions)
+        const normalizedX = width < 0 ? x + width : x;
+        const normalizedY = height < 0 ? y + height : y;
+        const normalizedWidth = Math.abs(width);
+        const normalizedHeight = Math.abs(height);
+        
+        // Type assertion since TypeScript doesn't narrow type correctly
+        const shapeType = drawingShapeType as ShapeType['type'];
+        
+        // Create shape based on type
+        if (shapeType === 'circle') {
+          // For circles, use the smaller dimension as the radius to maintain aspect ratio
+          // Circles are positioned by their CENTER point in Konva
+          const radius = Math.min(normalizedWidth, normalizedHeight) / 2;
+          const centerX = normalizedX + radius;
+          const centerY = normalizedY + radius;
+          await addShape(shapeType, { x: centerX, y: centerY }, { radius, width: radius * 2, height: radius * 2 });
+        } else if (shapeType === 'line') {
+          // For lines, calculate points relative to the starting position
+          // Points are relative to the line's x,y position
+          const startX = x;
+          const startY = y;
+          
+          await addShape(shapeType, { x: startX, y: startY }, { 
+            points: [0, 0, width, height] as [number, number, number, number],
+            width: normalizedWidth,
+            height: normalizedHeight
+          });
+        } else {
+          // For rectangles and text
+          await addShape(shapeType, { x: normalizedX, y: normalizedY }, { 
+            width: normalizedWidth, 
+            height: normalizedHeight 
+          });
+        }
+      }
+      
+      exitDrawingMode();
+      return;
+    }
+    
     // End panning
     if (isPanning) {
       setIsPanning(false);
@@ -658,7 +1114,21 @@ const Canvas: React.FC = () => {
    * Constrains panning to canvas bounds with context-aware logic
    */
   const handleStageDragEnd = (e: KonvaEventObject<DragEvent>) => {
-    const stage = e.target;
+    // Prevent this handler from running if a shape is being dragged
+    // or if the event target is not the stage itself
+    if (isDraggingShapeRef.current) {
+      console.log('[handleStageDragEnd] Blocked: shape is being dragged');
+      return;
+    }
+    
+    const stage = e.target.getStage();
+    if (!stage || e.target !== stage) {
+      console.log('[handleStageDragEnd] Blocked: event not from stage');
+      return; // Event came from a shape, not the stage
+    }
+    
+    console.log('[handleStageDragEnd] Executing: panning stage');
+    
     const newPos = {
       x: stage.x(),
       y: stage.y(),
@@ -824,33 +1294,91 @@ const Canvas: React.FC = () => {
   };
 
   /**
-   * Handle add shape button click
-   * Creates a shape at the center of the current viewport
-   * Ensures shape is created wholly within canvas boundaries
+   * Reset zoom to 100% (scale = 1.0) while maintaining current center point
    */
-  const handleAddShape = (type: ShapeType['type']) => {
-    // Calculate center of current viewport in canvas coordinates
+  const handleResetZoom = () => {
+    const stage = stageRef?.current;
+    if (!stage) return;
+    
+    setStageScale(1.0);
+    
+    // Keep the same center point when resetting zoom
     const center = {
       x: dimensions.width / 2,
       y: dimensions.height / 2,
     };
-
-    // Convert screen coordinates to canvas coordinates
-    let canvasX = (center.x - stagePos.x) / stageScale;
-    let canvasY = (center.y - stagePos.y) / stageScale;
-
-    // Offset by half the shape size to center it
-    canvasX -= DEFAULT_SHAPE_WIDTH / 2;
-    canvasY -= DEFAULT_SHAPE_HEIGHT / 2;
-
-    // Constrain position to keep shape fully within canvas boundaries
-    // Ensure the shape's top-left corner is at least at (0, 0)
-    // and bottom-right corner is at most at (CANVAS_WIDTH, CANVAS_HEIGHT)
-    const constrainedX = Math.max(0, Math.min(canvasX, CANVAS_WIDTH - DEFAULT_SHAPE_WIDTH));
-    const constrainedY = Math.max(0, Math.min(canvasY, CANVAS_HEIGHT - DEFAULT_SHAPE_HEIGHT));
-
-    addShape(type, { x: constrainedX, y: constrainedY });
+    
+    const mousePointTo = {
+      x: (center.x - stage.x()) / stage.scaleX(),
+      y: (center.y - stage.y()) / stage.scaleY(),
+    };
+    
+    const newPos = {
+      x: center.x - mousePointTo.x * 1.0,
+      y: center.y - mousePointTo.y * 1.0,
+    };
+    
+    setStagePos(newPos);
   };
+
+  /**
+   * Handle add shape button click - enter drawing mode
+   */
+  const handleAddShape = (type: ShapeType['type']) => {
+    setIsDrawingMode(true);
+    setDrawingShapeType(type);
+  };
+
+  /**
+   * Exit drawing mode and reset state
+   */
+  const exitDrawingMode = () => {
+    setIsDrawingMode(false);
+    setDrawingShapeType(null);
+    setDrawingPreview(null);
+    drawingStartRef.current = null;
+  };
+
+  /**
+   * Handle bring to front (move to top of z-index)
+   */
+  const handleBringToFront = useCallback(async (shapeId: string) => {
+    const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
+    await updateShape(shapeId, { zIndex: maxZIndex + 1 });
+  }, [shapes, updateShape]);
+
+  /**
+   * Handle send to back (move to bottom of z-index)
+   */
+  const handleSendToBack = useCallback(async (shapeId: string) => {
+    const minZIndex = Math.min(...shapes.map(s => s.zIndex || 0), 0);
+    await updateShape(shapeId, { zIndex: minZIndex - 1 });
+  }, [shapes, updateShape]);
+
+  /**
+   * Handle right-click on shape
+   */
+  const handleShapeContextMenu = useCallback((e: any, shapeId: string) => {
+    e.evt.preventDefault();
+    const stage = stageRef?.current;
+    if (!stage) return;
+
+    // Get screen position of the click
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    // Select the shape if not already selected
+    if (!selectedIds.includes(shapeId)) {
+      selectShape(shapeId);
+    }
+
+    // Show context menu at cursor position
+    setContextMenu({
+      x: pointerPos.x,
+      y: pointerPos.y,
+      shapeId,
+    });
+  }, [selectedIds, selectShape, stageRef]);
 
   /**
    * Render shape based on type
@@ -893,7 +1421,16 @@ const Canvas: React.FC = () => {
         }
       },
       onDragStart: () => handleShapeDragStart(shape.id),
+      onDragMove: (x: number, y: number) => handleShapeDragMove(shape.id, x, y),
       onDragEnd: (x: number, y: number) => handleShapeDragEnd(shape.id, x, y),
+      onContextMenu: (e: any) => handleShapeContextMenu(e, shape.id),
+      onRef: (node: any) => {
+        if (node) {
+          shapeNodesRef.current.set(shape.id, node);
+        } else {
+          shapeNodesRef.current.delete(shape.id);
+        }
+      },
     };
 
     switch (shape.type) {
@@ -948,6 +1485,10 @@ const Canvas: React.FC = () => {
             fontSize={shape.fontSize}
             fontFamily={shape.fontFamily}
             textAlign={shape.textAlign}
+            verticalAlign={shape.verticalAlign}
+            fontWeight={shape.fontWeight}
+            fontStyle={shape.fontStyle}
+            textDecoration={shape.textDecoration}
             fill={shape.fill}
             stroke={shape.stroke}
             strokeWidth={shape.strokeWidth}
@@ -1010,12 +1551,10 @@ const Canvas: React.FC = () => {
    * IMPORTANT: Must be declared before any early returns to follow Rules of Hooks
    */
   const handlePropertyUpdate = useCallback(async (updates: Partial<ShapeType>) => {
-    console.log('[Canvas] handlePropertyUpdate called:', { selectedId, updates });
     if (!selectedId) return;
     
     try {
       await updateShape(selectedId, updates);
-      console.log('[Canvas] Shape updated successfully');
     } catch (error) {
       console.error('Error updating shape properties:', error);
       toast.error('Failed to update shape properties');
@@ -1127,8 +1666,15 @@ const Canvas: React.FC = () => {
 
       // For rectangles and text, update width/height
       if (shape.type === 'rectangle' || shape.type === 'text') {
-        updates.width = shape.width * scaleX;
-        updates.height = shape.height * scaleY;
+        // For text shapes, width/height are already updated in onTransform, so use node values directly
+        // For rectangles, calculate from scale
+        if (shape.type === 'text') {
+          updates.width = node.width();
+          updates.height = node.height();
+        } else {
+          updates.width = shape.width * scaleX;
+          updates.height = shape.height * scaleY;
+        }
         // Reset scale after applying to dimensions
         updates.scaleX = 1;
         updates.scaleY = 1;
@@ -1181,7 +1727,7 @@ const Canvas: React.FC = () => {
   return (
     <div 
       className="w-full h-full bg-gray-100 overflow-hidden relative"
-      style={{ cursor: isSpacePressed ? 'grab' : isPanning ? 'grabbing' : 'default' }}
+      style={{ cursor: isSpacePressed ? 'grab' : isPanning ? 'grabbing' : isDrawingMode ? 'crosshair' : 'default' }}
     >
       <Stage
         ref={stageRef}
@@ -1202,6 +1748,9 @@ const Canvas: React.FC = () => {
         onMouseUp={handleStageMouseUp}
         onDragEnd={handleStageDragEnd}
         onWheel={handleWheel}
+        onContextMenu={(e) => {
+          e.evt.preventDefault(); // Prevent default browser context menu
+        }}
       >
         <Layer>
           {/* Background grid or color can be added here */}
@@ -1273,6 +1822,60 @@ const Canvas: React.FC = () => {
               listening={false}
             />
           )}
+          
+          {/* Drawing preview visualization */}
+          {isDrawingMode && drawingPreview && drawingShapeType && (() => {
+            const normalizedX = drawingPreview.width < 0 ? drawingPreview.x + drawingPreview.width : drawingPreview.x;
+            const normalizedY = drawingPreview.height < 0 ? drawingPreview.y + drawingPreview.height : drawingPreview.y;
+            const absWidth = Math.abs(drawingPreview.width);
+            const absHeight = Math.abs(drawingPreview.height);
+            
+            if (drawingShapeType === 'circle') {
+              // Circle preview - use smaller dimension as diameter to maintain aspect ratio
+              const radius = Math.min(absWidth, absHeight) / 2;
+              const centerX = normalizedX + radius;
+              const centerY = normalizedY + radius;
+              
+              return (
+                <KonvaCircle
+                  x={centerX}
+                  y={centerY}
+                  radius={radius}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'line') {
+              // Line preview - from start to current position
+              return (
+                <KonvaLine
+                  points={[drawingPreview.x, drawingPreview.y, drawingPreview.x + drawingPreview.width, drawingPreview.y + drawingPreview.height]}
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  listening={false}
+                />
+              );
+            } else {
+              // Rectangle/Text preview
+              return (
+                <Rect
+                  x={normalizedX}
+                  y={normalizedY}
+                  width={absWidth}
+                  height={absHeight}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  listening={false}
+                />
+              );
+            }
+          })()}
         </Layer>
       </Stage>
 
@@ -1335,6 +1938,14 @@ const Canvas: React.FC = () => {
         hasGroupedShapes={shapes.some(s => selectedIds.includes(s.id) && s.groupId)}
       />
 
+      {/* Drawing Mode Indicator */}
+      {isDrawingMode && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 pointer-events-none">
+          <div className="text-lg font-bold">Drawing {drawingShapeType}</div>
+          <div className="text-sm">Click and drag to create • Press ESC to cancel</div>
+        </div>
+      )}
+
       {/* Canvas Controls */}
       <CanvasControls
         zoom={stageScale}
@@ -1342,15 +1953,40 @@ const Canvas: React.FC = () => {
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onResetView={handleResetView}
+        onResetZoom={handleResetZoom}
         onAddShape={handleAddShape}
         onUndo={undo}
         onRedo={redo}
         canUndo={canUndo}
         canRedo={canRedo}
+        onClearAll={clearAll}
+        isDrawingMode={isDrawingMode}
+        drawingShapeType={drawingShapeType}
       />
 
       {/* AI Input */}
       <AIInput />
+
+      {/* Context Menu */}
+      {contextMenu && (() => {
+        const shape = shapes.find(s => s.id === contextMenu.shapeId);
+        const isLockedByOther = shape?.isLocked && shape.lockedBy && shape.lockedBy !== currentUser?.uid;
+        
+        return (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            onBringForward={() => bringForward(contextMenu.shapeId)}
+            onSendBackward={() => sendBack(contextMenu.shapeId)}
+            onBringToFront={() => handleBringToFront(contextMenu.shapeId)}
+            onSendToBack={() => handleSendToBack(contextMenu.shapeId)}
+            onDuplicate={() => duplicateShape(contextMenu.shapeId)}
+            onDelete={() => deleteShape(contextMenu.shapeId)}
+            isLockedByOther={!!isLockedByOther}
+          />
+        );
+      })()}
     </div>
   );
 };

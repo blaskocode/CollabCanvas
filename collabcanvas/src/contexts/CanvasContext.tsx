@@ -2,14 +2,15 @@ import React, { createContext, useContext, useState, useRef, useEffect } from 'r
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
-import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService } from '../services/canvas';
+import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService, clearAllShapes as clearAllShapesService, restoreAllShapes as restoreAllShapesService } from '../services/canvas';
 import { 
   createGroup as createGroupService, 
   ungroupShapes as ungroupShapesService, 
   deleteGroupRecursive, 
   updateGroupStyle as updateGroupStyleService,
   duplicateGroup as duplicateGroupService,
-  getGroupShapesRecursive
+  getGroupShapesRecursive,
+  updateGroupBounds as updateGroupBoundsService
 } from '../services/grouping';
 import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape } from '../utils/types';
 import type Konva from 'konva';
@@ -86,9 +87,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * 
    * @param type - Shape type
    * @param position - Position where the shape should be created
+   * @param customProperties - Optional custom properties to override defaults
    */
-  const addShape = async (type: ShapeType, position: { x: number; y: number }): Promise<void> => {
-    await addShapeHook(type, position);
+  const addShape = async (
+    type: ShapeType,
+    position: { x: number; y: number },
+    customProperties?: Partial<ShapeCreateData>
+  ): Promise<void> => {
+    await addShapeHook(type, position, customProperties);
     
     // Record action after shape is added (skip if in undo/redo)
     // Note: We can't easily capture the new shape here due to async Firestore updates
@@ -282,6 +288,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
     
     await createShapeService(GLOBAL_CANVAS_ID, duplicatedShape);
+    
+    // Select the duplicated shape after creation
+    setTimeout(() => {
+      selectShape(newId);
+    }, 100);
     
     // Record the creation in history (skip if in undo/redo)
     if (!isPerformingHistoryAction.current) {
@@ -661,6 +672,15 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   /**
+   * Update group bounding box after shapes have moved
+   * 
+   * @param groupId - The group ID to update
+   */
+  const updateGroupBounds = async (groupId: string): Promise<void> => {
+    await updateGroupBoundsService(GLOBAL_CANVAS_ID, groupId, shapes);
+  };
+
+  /**
    * Duplicate a group and all its shapes
    * 
    * @param groupId - The group ID to duplicate
@@ -720,7 +740,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * Undo the last action
    * Restores the previous state of affected shapes
    */
-  const undo = (): void => {
+  const undo = async (): Promise<void> => {
     const action = history.undo();
     if (!action || !currentUser) return;
 
@@ -728,30 +748,37 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isPerformingHistoryAction.current = true;
 
     try {
-      // Restore the 'before' state for each affected shape
-      action.shapesAffected.forEach(async (shapeId) => {
-        const beforeState = action.before[shapeId];
-        
-        if (action.type === 'create') {
-          // Undo create: delete the shape
-          await deleteShapeHook(shapeId);
-        } else if (action.type === 'delete') {
-          // Undo delete: recreate the shape
-          if (beforeState) {
-            await createShapeService(GLOBAL_CANVAS_ID, beforeState as ShapeCreateData);
-          }
-        } else {
-          // Undo update: restore previous values
-          if (beforeState) {
-            await updateShapeHook(shapeId, beforeState);
+      // Check if this is a bulk operation (has group data)
+      if (action.groupsBefore !== undefined && action.groupsAfter !== undefined) {
+        // Bulk operation - use atomic restore
+        const shapesArray = Object.values(action.before).map(s => s as Shape);
+        await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsBefore);
+      } else {
+        // Individual shape operations
+        for (const shapeId of action.shapesAffected) {
+          const beforeState = action.before[shapeId];
+          
+          if (action.type === 'create') {
+            // Undo create: delete the shape
+            await deleteShapeHook(shapeId);
+          } else if (action.type === 'delete') {
+            // Undo delete: recreate the shape
+            if (beforeState) {
+              await createShapeService(GLOBAL_CANVAS_ID, beforeState as ShapeCreateData);
+            }
+          } else {
+            // Undo update: restore previous values
+            if (beforeState) {
+              await updateShapeHook(shapeId, beforeState);
+            }
           }
         }
-      });
+      }
     } finally {
       // Clear flag after a short delay to ensure all updates complete
       setTimeout(() => {
         isPerformingHistoryAction.current = false;
-      }, 100);
+      }, 300);
     }
   };
 
@@ -759,7 +786,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * Redo the next action
    * Restores the next state of affected shapes
    */
-  const redo = (): void => {
+  const redo = async (): Promise<void> => {
     const action = history.redo();
     if (!action || !currentUser) return;
 
@@ -767,31 +794,92 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isPerformingHistoryAction.current = true;
 
     try {
-      // Restore the 'after' state for each affected shape
-      action.shapesAffected.forEach(async (shapeId) => {
-        const afterState = action.after[shapeId];
-        
-        if (action.type === 'create') {
-          // Redo create: recreate the shape
-          if (afterState) {
-            await createShapeService(GLOBAL_CANVAS_ID, afterState as ShapeCreateData);
-          }
-        } else if (action.type === 'delete') {
-          // Redo delete: delete the shape again
-          await deleteShapeHook(shapeId);
-        } else {
-          // Redo update: apply the new values
-          if (afterState) {
-            await updateShapeHook(shapeId, afterState);
+      // Check if this is a bulk operation (has group data)
+      if (action.groupsBefore !== undefined && action.groupsAfter !== undefined) {
+        // Bulk operation - use atomic restore
+        const shapesArray = Object.values(action.after).map(s => s as Shape);
+        await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsAfter);
+      } else {
+        // Individual shape operations
+        for (const shapeId of action.shapesAffected) {
+          const afterState = action.after[shapeId];
+          
+          if (action.type === 'create') {
+            // Redo create: recreate the shape
+            if (afterState) {
+              await createShapeService(GLOBAL_CANVAS_ID, afterState as ShapeCreateData);
+            }
+          } else if (action.type === 'delete') {
+            // Redo delete: delete the shape again
+            await deleteShapeHook(shapeId);
+          } else {
+            // Redo update: apply the new values
+            if (afterState) {
+              await updateShapeHook(shapeId, afterState);
+            }
           }
         }
-      });
+      }
     } finally {
       // Clear flag after a short delay to ensure all updates complete
       setTimeout(() => {
         isPerformingHistoryAction.current = false;
-      }, 100);
+      }, 300);
     }
+  };
+
+  /**
+   * Clear all shapes and groups from the canvas
+   * Shows confirmation dialog and records as single undo/redo action
+   */
+  const clearAll = async (): Promise<void> => {
+    if (!currentUser) return;
+
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      'Are you sure you want to clear everything from the canvas? This will affect all users.'
+    );
+
+    if (!confirmed) return;
+
+    // Capture current state before deletion
+    const shapesToDelete = [...shapes]; // Create a copy
+    const groupsToDelete = [...groups]; // Create a copy
+    const allShapeIds = shapesToDelete.map(s => s.id);
+
+    // Skip recording if we're in undo/redo
+    if (isPerformingHistoryAction.current) {
+      // Single atomic operation to clear everything
+      await clearAllShapesService(GLOBAL_CANVAS_ID);
+      
+      // Clear selection
+      setSelectedIds([]);
+      return;
+    }
+
+    // Capture current state of all shapes for history
+    const before: Record<string, Partial<Shape>> = {};
+    shapesToDelete.forEach(shape => {
+      before[shape.id] = { ...shape };
+    });
+
+    // Single atomic operation to clear everything from Firestore
+    await clearAllShapesService(GLOBAL_CANVAS_ID);
+
+    // Clear selection
+    setSelectedIds([]);
+
+    // Record as single delete action with groups information
+    history.recordAction({
+      type: 'delete',
+      shapesAffected: allShapeIds,
+      before,
+      after: {},
+      groupsBefore: groupsToDelete,
+      groupsAfter: [],
+      timestamp: Date.now(),
+      userId: currentUser.uid,
+    });
   };
 
   const value: CanvasContextType = {
@@ -818,12 +906,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     ungroupShapes,
     deleteGroup,
     updateGroupStyle,
+    updateGroupBounds,
     duplicateGroup,
     getGroupShapes,
     undo,
     redo,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
+    clearAll,
   };
 
   return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;

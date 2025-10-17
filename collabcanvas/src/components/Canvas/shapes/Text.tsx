@@ -14,6 +14,10 @@ interface TextProps {
   fontSize?: number;
   fontFamily?: string;
   textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: string;
   fill: string;
   stroke?: string;
   strokeWidth?: number;
@@ -27,8 +31,11 @@ interface TextProps {
   currentUserId: string | null;
   onSelect: (e?: any) => void;
   onDragStart?: () => void;
+  onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
   onTextChange?: (text: string) => void;
+  onContextMenu?: (e: any) => void;
+  onRef?: (node: any) => void;
 }
 
 /**
@@ -46,7 +53,11 @@ const Text: React.FC<TextProps> = ({
   text,
   fontSize = 16,
   fontFamily = 'Arial',
-  textAlign = 'left',
+  textAlign = 'center',
+  verticalAlign = 'middle',
+  fontWeight = 'normal',
+  fontStyle = 'normal',
+  textDecoration = '',
   fill,
   opacity = 100,
   rotation = 0,
@@ -56,11 +67,21 @@ const Text: React.FC<TextProps> = ({
   currentUserId,
   onSelect,
   onDragStart,
+  onDragMove,
   onDragEnd,
   onTextChange,
+  onContextMenu,
+  onRef,
 }) => {
   const textRef = useRef<Konva.Text>(null);
   const [isEditing, setIsEditing] = useState(false);
+  
+  // Call onRef callback when ref changes
+  useEffect(() => {
+    if (onRef) {
+      onRef(textRef.current);
+    }
+  }, [onRef]);
   
   // Store callback in ref to avoid recreating textarea on every render
   const onTextChangeRef = useRef(onTextChange);
@@ -88,6 +109,16 @@ const Text: React.FC<TextProps> = ({
     }
     
     setIsEditing(true);
+  };
+
+  /**
+   * Handle context menu (right-click)
+   */
+  const handleContextMenu = (e: any) => {
+    e.cancelBubble = true;
+    if (onContextMenu) {
+      onContextMenu(e);
+    }
   };
 
   /**
@@ -122,7 +153,7 @@ const Text: React.FC<TextProps> = ({
   };
 
   /**
-   * Constrain drag bounds during dragging
+   * Constrain drag bounds during dragging and notify parent for multi-select/group drag
    */
   const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
@@ -135,6 +166,11 @@ const Text: React.FC<TextProps> = ({
     const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - height));
 
     node.position({ x: constrainedX, y: constrainedY });
+    
+    // Notify parent for multi-select/group drag
+    if (onDragMove) {
+      onDragMove(constrainedX, constrainedY);
+    }
   };
 
   // Check if shape is locked by another user
@@ -264,7 +300,10 @@ const Text: React.FC<TextProps> = ({
       text={text}
       fontSize={fontSize}
       fontFamily={fontFamily}
+      fontStyle={`${fontStyle} ${fontWeight}`} // Combine font style and weight
+      textDecoration={textDecoration}
       align={textAlign}
+      verticalAlign={verticalAlign}
       fill={fill}
       stroke={finalStroke}
       strokeWidth={finalStrokeWidth}
@@ -277,6 +316,7 @@ const Text: React.FC<TextProps> = ({
       onTap={handleClick}
       onDblClick={handleDoubleClick}
       onDblTap={handleDoubleClick}
+      onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragMove={handleDragMove}

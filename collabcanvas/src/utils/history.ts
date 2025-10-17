@@ -3,7 +3,7 @@
  * Tracks user actions on the canvas for undo/redo operations
  */
 
-import type { Shape } from './types';
+import type { Shape, ShapeGroup } from './types';
 
 /**
  * Types of actions that can be recorded in history
@@ -39,6 +39,12 @@ export interface HistoryAction {
   
   /** User who performed the action */
   userId: string;
+  
+  /** Groups before the action (for bulk operations like Clear All) */
+  groupsBefore?: ShapeGroup[];
+  
+  /** Groups after the action (for bulk operations like Clear All) */
+  groupsAfter?: ShapeGroup[];
 }
 
 /**

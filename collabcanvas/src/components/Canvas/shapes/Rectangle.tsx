@@ -24,7 +24,10 @@ interface RectangleProps {
   currentUserId: string | null;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDragStart?: () => void;
+  onDragMove?: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
+  onContextMenu?: (e: KonvaEventObject<PointerEvent>) => void;
+  onRef?: (node: Konva.Rect | null) => void;
 }
 
 /**
@@ -53,9 +56,19 @@ const Rectangle: React.FC<RectangleProps> = ({
   currentUserId,
   onSelect,
   onDragStart,
+  onDragMove,
   onDragEnd,
+  onContextMenu,
+  onRef,
 }) => {
   const shapeRef = React.useRef<Konva.Rect>(null);
+  
+  // Call onRef callback when ref changes
+  React.useEffect(() => {
+    if (onRef) {
+      onRef(shapeRef.current);
+    }
+  }, [onRef]);
 
   /**
    * Handle shape click to select
@@ -71,6 +84,16 @@ const Rectangle: React.FC<RectangleProps> = ({
   const handleTap = (e: KonvaEventObject<TouchEvent>) => {
     e.cancelBubble = true; // Prevent stage click
     onSelect(e);
+  };
+
+  /**
+   * Handle context menu (right-click)
+   */
+  const handleContextMenu = (e: KonvaEventObject<PointerEvent>) => {
+    e.cancelBubble = true; // Prevent stage context menu
+    if (onContextMenu) {
+      onContextMenu(e);
+    }
   };
 
   /**
@@ -108,7 +131,7 @@ const Rectangle: React.FC<RectangleProps> = ({
   };
 
   /**
-   * Constrain drag bounds during dragging
+   * Constrain drag bounds during dragging and notify parent for multi-select/group drag
    * Prevents event bubbling to stage
    */
   const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
@@ -123,6 +146,11 @@ const Rectangle: React.FC<RectangleProps> = ({
     const constrainedY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - height));
 
     node.position({ x: constrainedX, y: constrainedY });
+    
+    // Notify parent for multi-select/group drag
+    if (onDragMove) {
+      onDragMove(constrainedX, constrainedY);
+    }
   };
 
   // Check if shape is locked by another user
@@ -161,6 +189,7 @@ const Rectangle: React.FC<RectangleProps> = ({
       draggable={!isLockedByOtherUser} // Only draggable if not locked by another user
       onClick={handleClick}
       onTap={handleTap}
+      onContextMenu={handleContextMenu}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragMove={handleDragMove}

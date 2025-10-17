@@ -85,14 +85,19 @@ export const useCanvas = (userId: string) => {
   /**
    * Add a new shape to the canvas
    */
-  const addShape = async (type: ShapeType, position: { x: number; y: number }): Promise<void> => {
+  const addShape = async (
+    type: ShapeType,
+    position: { x: number; y: number },
+    customProperties?: Partial<ShapeCreateData>
+  ): Promise<void> => {
     try {
       // Generate unique ID using Firebase
       const shapeId = doc(collection(db, 'canvas')).id;
 
       // Use the shape factory to create shape with type-specific defaults
+      // Custom properties will override defaults
       const shapeData: ShapeCreateData = {
-        ...createShapeByType(type, position, userId),
+        ...createShapeByType(type, position, userId, customProperties),
         id: shapeId,
       };
 

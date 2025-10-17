@@ -2,42 +2,42 @@
 
 **Status:** Ready for API Key  
 **Time Required:** 15 minutes  
-**Cost:** $5-10 for Claude API access
+**Cost:** $5-10 for OpenAI API access
 
 ---
 
 ## 🚀 Quick Start
 
-The AI agent is **fully implemented** and ready to use. You just need to add your Claude API key to the `.env` file.
+The AI agent is **fully implemented** and ready to use. You just need to add your OpenAI API key to the `.env` file.
 
 ---
 
-## Step 1: Get Your Claude API Key
+## Step 1: Get Your OpenAI API Key
 
-### 1.1 Sign Up for Anthropic Console
+### 1.1 Sign Up for OpenAI Platform
 
-1. Go to: **https://console.anthropic.com**
+1. Go to: **https://platform.openai.com**
 2. Click "Sign Up" (or "Sign In" if you have an account)
 3. Complete the registration
 
 ### 1.2 Add Payment Method
 
 1. Go to **Settings** > **Billing**
-2. Click **"Add Payment Method"**
+2. Click **"Add payment method"**
 3. Add your credit card
 4. Add initial credits (recommended: $10)
 
 **Cost Estimate:**
-- Each AI command: ~$0.01 - $0.03
-- $10 credit = ~300-1000 AI commands
+- Each AI command: ~$0.01 - $0.03 (GPT-4) or ~$0.001 - $0.005 (GPT-3.5)
+- $10 credit = ~300-1000 AI commands (GPT-4) or ~2000-10000 (GPT-3.5)
 - Very affordable for testing and demos!
 
 ### 1.3 Create API Key
 
-1. Go to **Settings** > **API Keys**
-2. Click **"Create Key"**
+1. Go to **API keys** section (left sidebar)
+2. Click **"Create new secret key"**
 3. Give it a name: "CollabCanvas Development"
-4. Click **"Create"**
+4. Click **"Create secret key"**
 5. **COPY THE KEY** (you won't see it again!)
 
 ---
@@ -56,10 +56,10 @@ nano .env
 ### 2.2 Add This Line
 
 ```bash
-VITE_CLAUDE_API_KEY=sk-ant-your-key-here
+VITE_OPENAI_API_KEY=sk-proj-your-key-here
 ```
 
-Replace `sk-ant-your-key-here` with your actual API key.
+Replace `sk-proj-your-key-here` with your actual API key.
 
 **Complete .env Example:**
 ```bash
@@ -73,7 +73,7 @@ VITE_FIREBASE_APP_ID=your_app_id
 VITE_FIREBASE_DATABASE_URL=https://collabcanvas-mvp.firebaseio.com
 
 # Add this new line for AI:
-VITE_CLAUDE_API_KEY=sk-ant-api03-your-actual-key-here
+VITE_OPENAI_API_KEY=sk-proj-your-actual-key-here
 ```
 
 ### 2.3 Save and Restart Dev Server
@@ -127,8 +127,8 @@ Make it green
 ### 3.3 Check Console
 
 Open browser DevTools (F12) and watch the Console tab:
-- Should see: `[AI] Sending request to Claude...`
-- Then: `[AI] Claude response: ...`
+- Should see: `[AI] Sending request to OpenAI...`
+- Then: `[AI] OpenAI response: ...`
 - Then: `[AI] Complete: X created, Y modified`
 
 ---
@@ -148,7 +148,7 @@ ls -la .env
 touch .env
 
 # Add the key:
-echo "VITE_CLAUDE_API_KEY=sk-ant-your-key" >> .env
+echo "VITE_OPENAI_API_KEY=sk-proj-your-key" >> .env
 
 # Restart dev server
 npm run dev
@@ -159,8 +159,8 @@ npm run dev
 **Problem:** API key is incorrect or expired
 
 **Solution:**
-1. Go back to https://console.anthropic.com
-2. Check your API key in Settings > API Keys
+1. Go back to https://platform.openai.com
+2. Check your API key in API keys section
 3. If needed, create a new key
 4. Update `.env` with the new key
 5. Restart dev server
@@ -172,7 +172,16 @@ npm run dev
 **Solution:**
 - Wait 1-2 minutes
 - Try again
-- If persistent, check your Anthropic console for usage limits
+- If persistent, check your OpenAI dashboard for usage limits
+
+### Error: "Insufficient quota"
+
+**Problem:** No credits remaining in OpenAI account
+
+**Solution:**
+1. Go to https://platform.openai.com/account/billing
+2. Add more credits
+3. Try again
 
 ### Error: "Network error" or "Failed to fetch"
 
@@ -181,7 +190,7 @@ npm run dev
 **Solution:**
 1. Check internet connection
 2. Try disabling browser extensions (ad blockers)
-3. Check Anthropic status: https://status.anthropic.com
+3. Check OpenAI status: https://status.openai.com
 
 ### AI Creates Shapes in Wrong Places
 
@@ -197,8 +206,8 @@ npm run dev
 ## What's Implemented
 
 ### ✅ AI Service (`src/services/ai.ts`)
-- Claude API integration with Anthropic SDK
-- 5 tools: createShape, updateShape, deleteShape, alignShapes, distributeShapes
+- OpenAI GPT-4 integration with OpenAI SDK
+- 5 functions: createShape, updateShape, deleteShape, alignShapes, distributeShapes
 - Error handling and helpful error messages
 - Cost-efficient prompting
 
@@ -254,20 +263,28 @@ Once you have the API key, test these scenarios:
 ## Cost Monitoring
 
 ### Check Usage
-1. Go to https://console.anthropic.com
+1. Go to https://platform.openai.com
 2. Click **"Usage"** in sidebar
 3. See real-time costs and request counts
 
 ### Expected Costs
+
+**GPT-4 Turbo:**
 - **Per command:** $0.01 - $0.03
 - **10 test commands:** ~$0.10 - $0.30
 - **100 commands (full testing):** ~$1 - $3
 - **Demo day (50 commands):** ~$0.50 - $1.50
 
+**GPT-3.5 Turbo (if you switch models):**
+- **Per command:** $0.001 - $0.005
+- **10 test commands:** ~$0.01 - $0.05
+- **100 commands (full testing):** ~$0.10 - $0.50
+- **Demo day (50 commands):** ~$0.05 - $0.25
+
 ### Set Budget Alerts
 1. Go to Settings > Billing
-2. Set budget limit (e.g., $20)
-3. Enable email alerts at 50%, 75%, 90%
+2. Set usage limits
+3. Enable email alerts
 
 ---
 
@@ -278,7 +295,7 @@ Once you have the API key, test these scenarios:
 Add the environment variable to Firebase:
 
 ```bash
-firebase functions:config:set claude.api_key="sk-ant-your-key"
+firebase functions:config:set openai.api_key="sk-proj-your-key"
 ```
 
 ### For Vercel
@@ -287,8 +304,8 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 2. Select your project
 3. Go to Settings > Environment Variables
 4. Add:
-   - Name: `VITE_CLAUDE_API_KEY`
-   - Value: `sk-ant-your-key-here`
+   - Name: `VITE_OPENAI_API_KEY`
+   - Value: `sk-proj-your-key-here`
    - Environment: Production, Preview, Development
 
 ---
@@ -304,7 +321,7 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 ### Rate Limiting
 - Client-side rate limiting is **not implemented**
 - Consider adding rate limiting for production
-- Anthropic has built-in rate limits (varies by plan)
+- OpenAI has built-in rate limits (varies by plan)
 
 ### User Abuse Prevention
 - Current implementation: anyone logged in can use AI
@@ -315,9 +332,30 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 
 ---
 
+## Model Configuration
+
+The current implementation uses `gpt-4-turbo-preview`. You can change this in `src/services/ai.ts`:
+
+**For better quality (current):**
+```typescript
+model: 'gpt-4-turbo-preview'
+```
+
+**For faster/cheaper responses:**
+```typescript
+model: 'gpt-3.5-turbo-1106'
+```
+
+**For latest GPT-4 Turbo:**
+```typescript
+model: 'gpt-4-1106-preview'
+```
+
+---
+
 ## Next Steps
 
-1. ✅ Get Claude API key
+1. ✅ Get OpenAI API key
 2. ✅ Add to `.env`
 3. ✅ Restart dev server
 4. ✅ Test basic commands
@@ -329,10 +367,10 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 
 ## Support
 
-**Anthropic Documentation:**
-- API Docs: https://docs.anthropic.com
-- Tool Use: https://docs.anthropic.com/claude/docs/tool-use
-- Best Practices: https://docs.anthropic.com/claude/docs/best-practices
+**OpenAI Documentation:**
+- API Docs: https://platform.openai.com/docs
+- Function Calling: https://platform.openai.com/docs/guides/function-calling
+- Best Practices: https://platform.openai.com/docs/guides/prompt-engineering
 
 **CollabCanvas AI:**
 - Service: `src/services/ai.ts`
@@ -341,7 +379,7 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 
 **Need Help?**
 - Check browser console for detailed error logs
-- Review Anthropic status page
+- Review OpenAI status page
 - Check Firebase console for any Firestore errors
 
 ---
@@ -349,4 +387,3 @@ firebase functions:config:set claude.api_key="sk-ant-your-key"
 **You're all set! 🎉**
 
 The AI agent is fully implemented and ready to use. Just add your API key and you'll have a powerful natural language design assistant for CollabCanvas!
-

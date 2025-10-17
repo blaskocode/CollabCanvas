@@ -97,12 +97,14 @@ const initializeCanvas = async (canvasId: string): Promise<void> => {
  * @param type - The shape type
  * @param position - The position {x, y}
  * @param userId - The user ID creating the shape
+ * @param customProperties - Optional custom properties to override defaults
  * @returns Shape creation data with type-specific properties
  */
 export const createShapeByType = (
   type: ShapeType,
   position: { x: number; y: number },
-  userId: string
+  userId: string,
+  customProperties?: Partial<ShapeCreateData>
 ): ShapeCreateData => {
   const baseShape = {
     type,
@@ -111,26 +113,30 @@ export const createShapeByType = (
     createdBy: userId,
   };
 
+  let defaults: ShapeCreateData;
+
   switch (type) {
     case 'rectangle':
-      return {
+      defaults = {
         ...baseShape,
         width: DEFAULT_SHAPE_WIDTH,
         height: DEFAULT_SHAPE_HEIGHT,
         fill: DEFAULT_SHAPE_FILL,
       };
+      break;
     
     case 'circle':
-      return {
+      defaults = {
         ...baseShape,
         width: 100, // Bounding box width
         height: 100, // Bounding box height
         fill: DEFAULT_SHAPE_FILL,
         radius: 50,
       };
+      break;
     
     case 'text':
-      return {
+      defaults = {
         ...baseShape,
         width: 200,
         height: 50,
@@ -138,26 +144,42 @@ export const createShapeByType = (
         text: 'Click to edit',
         fontSize: 16,
         fontFamily: 'Arial',
-        textAlign: 'left',
+        textAlign: 'center',
+        verticalAlign: 'middle',
+        fontWeight: 'normal',
+        fontStyle: 'normal',
       };
+      break;
     
     case 'line':
-      return {
+      defaults = {
         ...baseShape,
         width: 100,
         height: 100,
         fill: '#000000',
         points: [0, 0, 100, 100], // Default diagonal line
       };
+      break;
     
     default:
-      return {
+      defaults = {
         ...baseShape,
         width: DEFAULT_SHAPE_WIDTH,
         height: DEFAULT_SHAPE_HEIGHT,
         fill: DEFAULT_SHAPE_FILL,
       };
   }
+
+  // Merge custom properties with defaults (custom properties take precedence)
+  return {
+    ...defaults,
+    ...customProperties,
+    // Always preserve these base properties
+    type,
+    x: position.x,
+    y: position.y,
+    createdBy: userId,
+  };
 };
 
 /**
@@ -213,6 +235,20 @@ export const createShape = async (
       newShape.cornerRadius = shapeData.cornerRadius;
     }
     
+    // Add transform properties only if they are defined
+    if (shapeData.rotation !== undefined) {
+      newShape.rotation = shapeData.rotation;
+    }
+    if (shapeData.scaleX !== undefined) {
+      newShape.scaleX = shapeData.scaleX;
+    }
+    if (shapeData.scaleY !== undefined) {
+      newShape.scaleY = shapeData.scaleY;
+    }
+    if (shapeData.zIndex !== undefined) {
+      newShape.zIndex = shapeData.zIndex;
+    }
+    
     // Add shape-specific properties only if they are defined (Firestore doesn't accept undefined)
     if (shapeData.radius !== undefined) {
       newShape.radius = shapeData.radius;
@@ -228,6 +264,18 @@ export const createShape = async (
     }
     if (shapeData.textAlign !== undefined) {
       newShape.textAlign = shapeData.textAlign;
+    }
+    if (shapeData.verticalAlign !== undefined) {
+      newShape.verticalAlign = shapeData.verticalAlign;
+    }
+    if (shapeData.fontWeight !== undefined) {
+      newShape.fontWeight = shapeData.fontWeight;
+    }
+    if (shapeData.fontStyle !== undefined) {
+      newShape.fontStyle = shapeData.fontStyle;
+    }
+    if (shapeData.textDecoration !== undefined) {
+      newShape.textDecoration = shapeData.textDecoration;
     }
     if (shapeData.points !== undefined) {
       newShape.points = shapeData.points;
@@ -339,6 +387,57 @@ export const deleteShape = async (
 };
 
 /**
+ * Clear all shapes and groups from the canvas in a single atomic operation
+ * 
+ * @param canvasId - The canvas document ID
+ */
+export const clearAllShapes = async (
+  canvasId: string
+): Promise<void> => {
+  try {
+    const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
+    
+    // Single atomic update to clear both shapes and groups arrays
+    await updateDoc(canvasRef, {
+      shapes: [],
+      groups: [],
+      lastUpdated: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error clearing all shapes:', error);
+    throw error;
+  }
+};
+
+/**
+ * Restore all shapes and groups to the canvas in a single atomic operation
+ * Used for undo/redo operations
+ * 
+ * @param canvasId - The canvas document ID
+ * @param shapes - Array of shapes to restore
+ * @param groups - Array of groups to restore
+ */
+export const restoreAllShapes = async (
+  canvasId: string,
+  shapes: Shape[],
+  groups: import('../utils/types').ShapeGroup[]
+): Promise<void> => {
+  try {
+    const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
+    
+    // Single atomic update to restore both shapes and groups arrays
+    await updateDoc(canvasRef, {
+      shapes,
+      groups,
+      lastUpdated: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error restoring all shapes:', error);
+    throw error;
+  }
+};
+
+/**
  * Lock a shape for exclusive editing
  * 
  * @param canvasId - The canvas document ID
@@ -417,6 +516,55 @@ export const checkAndReleaseStaleLocks = async (
 };
 
 /**
+ * Get shape bounds - helper function to calculate bounding box for any shape type
+ * Handles rectangles, circles, text, and lines with their specific geometry
+ */
+const getShapeBounds = (shape: Shape): { x: number; y: number; width: number; height: number; centerX: number; centerY: number } => {
+  if (shape.type === 'circle' && shape.radius) {
+    // Circle: x,y is the CENTER in Konva, so calculate bounding box from that
+    const width = shape.radius * 2;
+    const height = shape.radius * 2;
+    const bounds = {
+      x: shape.x - shape.radius, // Left edge
+      y: shape.y - shape.radius, // Top edge
+      width,
+      height,
+      centerX: shape.x, // Center is already the x,y position
+      centerY: shape.y,
+    };
+    console.log(`[getShapeBounds] Circle ${shape.id}: center=(${shape.x}, ${shape.y}), radius=${shape.radius}, bounds=`, bounds);
+    return bounds;
+  } else if (shape.type === 'line' && shape.points) {
+    // Line: calculate bounding box from points
+    const [x1, y1, x2, y2] = shape.points;
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+    const width = maxX - minX;
+    const height = maxY - minY;
+    return {
+      x: shape.x + minX,
+      y: shape.y + minY,
+      width,
+      height,
+      centerX: shape.x + (x1 + x2) / 2,
+      centerY: shape.y + (y1 + y2) / 2,
+    };
+  } else {
+    // Rectangle and Text: use width/height directly
+    return {
+      x: shape.x,
+      y: shape.y,
+      width: shape.width,
+      height: shape.height,
+      centerX: shape.x + shape.width / 2,
+      centerY: shape.y + shape.height / 2,
+    };
+  }
+};
+
+/**
  * Align multiple shapes
  * 
  * @param canvasId - The canvas document ID
@@ -434,50 +582,104 @@ export const alignShapes = async (
 
   const selectedShapes = shapes.filter(s => shapeIds.includes(s.id));
   
-  // Calculate bounding box
+  // Calculate bounding box using proper bounds for each shape type
+  const shapeBounds = selectedShapes.map(s => getShapeBounds(s));
+  
   const bounds = {
-    minX: Math.min(...selectedShapes.map(s => s.x)),
-    maxX: Math.max(...selectedShapes.map(s => s.x + s.width)),
-    minY: Math.min(...selectedShapes.map(s => s.y)),
-    maxY: Math.max(...selectedShapes.map(s => s.y + s.height)),
+    minX: Math.min(...shapeBounds.map(b => b.x)),
+    maxX: Math.max(...shapeBounds.map(b => b.x + b.width)),
+    minY: Math.min(...shapeBounds.map(b => b.y)),
+    maxY: Math.max(...shapeBounds.map(b => b.y + b.height)),
   };
   
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
 
   // Calculate new positions for each shape
-  const updates = selectedShapes.map(shape => {
+  const updates = selectedShapes.map((shape, index) => {
+    const shapeBound = shapeBounds[index];
     let newX = shape.x;
     let newY = shape.y;
 
     switch (alignType) {
       case 'left':
-        newX = bounds.minX;
+        // Align left edges
+        newX = shape.x + (bounds.minX - shapeBound.x);
         break;
       case 'centerH':
-        newX = centerX - shape.width / 2;
+        // Align horizontal centers
+        newX = shape.x + (centerX - shapeBound.centerX);
         break;
       case 'right':
-        newX = bounds.maxX - shape.width;
+        // Align right edges
+        newX = shape.x + (bounds.maxX - (shapeBound.x + shapeBound.width));
         break;
       case 'top':
-        newY = bounds.minY;
+        // Align top edges
+        newY = shape.y + (bounds.minY - shapeBound.y);
         break;
       case 'centerV':
-        newY = centerY - shape.height / 2;
+        // Align vertical centers
+        newY = shape.y + (centerY - shapeBound.centerY);
         break;
       case 'bottom':
-        newY = bounds.maxY - shape.height;
+        // Align bottom edges
+        newY = shape.y + (bounds.maxY - (shapeBound.y + shapeBound.height));
         break;
     }
 
-    return { id: shape.id, x: newX, y: newY };
+    // Round to avoid floating point precision issues
+    return { 
+      id: shape.id, 
+      x: Math.round(newX * 100) / 100, 
+      y: Math.round(newY * 100) / 100 
+    };
   });
 
-  // Batch update all shapes
-  await Promise.all(
-    updates.map(({ id, x, y }) => updateShape(canvasId, id, { x, y }))
-  );
+  // Filter out shapes that don't need updates (position unchanged)
+  const actualUpdates = updates.filter(update => {
+    const shape = selectedShapes.find(s => s.id === update.id);
+    return shape && (Math.abs(shape.x - update.x) > 0.01 || Math.abs(shape.y - update.y) > 0.01);
+  });
+
+  console.log('[alignShapes] Applying updates:', actualUpdates);
+
+  if (actualUpdates.length === 0) {
+    console.log('[alignShapes] No updates needed');
+    return;
+  }
+
+  // Apply all updates in a single atomic operation to avoid race conditions
+  const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
+  const canvasSnap = await getDoc(canvasRef);
+  const currentData = canvasSnap.data() as CanvasDocument;
+  
+  // Create a map of updates for quick lookup
+  const updateMap = new Map(actualUpdates.map(u => [u.id, u]));
+  
+  // Apply updates to the shapes array
+  const now = Timestamp.now();
+  const updatedShapes = currentData.shapes.map(shape => {
+    const update = updateMap.get(shape.id);
+    if (update) {
+      console.log(`[alignShapes] Updating shape ${shape.id} from (${shape.x}, ${shape.y}) to (${update.x}, ${update.y})`);
+      return {
+        ...shape,
+        x: update.x,
+        y: update.y,
+        lastModifiedAt: now,
+      };
+    }
+    return shape;
+  });
+
+  // Write all changes atomically
+  await updateDoc(canvasRef, {
+    shapes: updatedShapes,
+    lastUpdated: serverTimestamp(),
+  });
+
+  console.log('[alignShapes] Alignment complete');
 };
 
 /**
@@ -494,61 +696,108 @@ export const distributeShapes = async (
   direction: 'horizontal' | 'vertical',
   shapes: Shape[]
 ): Promise<void> => {
-  if (shapeIds.length < 3) return; // Need at least 3 shapes to distribute
+  if (shapeIds.length < 3) {
+    console.log('[distributeShapes] Need at least 3 shapes to distribute');
+    return; // Need at least 3 shapes to distribute
+  }
 
   const selectedShapes = shapes.filter(s => shapeIds.includes(s.id));
   
-  // Sort shapes by position
-  const sortedShapes = [...selectedShapes].sort((a, b) => {
+  // Get proper bounds for all shapes (handles circles, lines, rectangles)
+  const shapeBounds = selectedShapes.map(s => ({
+    shape: s,
+    bounds: getShapeBounds(s)
+  }));
+  
+  // Sort shapes by position (using proper bounds)
+  const sortedShapeData = [...shapeBounds].sort((a, b) => {
     if (direction === 'horizontal') {
-      return a.x - b.x;
+      return a.bounds.x - b.bounds.x;
     } else {
-      return a.y - b.y;
+      return a.bounds.y - b.bounds.y;
     }
   });
 
   // Calculate total space and gaps
-  const firstShape = sortedShapes[0];
-  const lastShape = sortedShapes[sortedShapes.length - 1];
+  const firstShapeData = sortedShapeData[0];
+  const lastShapeData = sortedShapeData[sortedShapeData.length - 1];
   
   const totalSpace = direction === 'horizontal'
-    ? (lastShape.x + lastShape.width) - firstShape.x
-    : (lastShape.y + lastShape.height) - firstShape.y;
+    ? (lastShapeData.bounds.x + lastShapeData.bounds.width) - firstShapeData.bounds.x
+    : (lastShapeData.bounds.y + lastShapeData.bounds.height) - firstShapeData.bounds.y;
   
-  const totalShapeSize = sortedShapes.reduce((sum, shape) => {
-    return sum + (direction === 'horizontal' ? shape.width : shape.height);
+  const totalShapeSize = sortedShapeData.reduce((sum, { bounds }) => {
+    return sum + (direction === 'horizontal' ? bounds.width : bounds.height);
   }, 0);
   
-  const gap = (totalSpace - totalShapeSize) / (sortedShapes.length - 1);
+  const gap = (totalSpace - totalShapeSize) / (sortedShapeData.length - 1);
+
+  console.log(`[distributeShapes] Direction: ${direction}, Total space: ${totalSpace}, Gap: ${gap}`);
 
   // Calculate new positions
   const updates: { id: string; x?: number; y?: number }[] = [];
-  let currentPos = direction === 'horizontal' ? firstShape.x : firstShape.y;
+  let currentPos = direction === 'horizontal' ? firstShapeData.bounds.x : firstShapeData.bounds.y;
 
-  sortedShapes.forEach((shape, index) => {
-    if (index === 0 || index === sortedShapes.length - 1) {
+  sortedShapeData.forEach(({ shape, bounds }, index) => {
+    if (index === 0 || index === sortedShapeData.length - 1) {
       // Keep first and last shapes in place
       return;
     }
 
     if (direction === 'horizontal') {
-      currentPos += sortedShapes[index - 1].width + gap;
-      updates.push({ id: shape.id, x: currentPos });
+      currentPos += sortedShapeData[index - 1].bounds.width + gap;
+      // Calculate the delta from current bounding box position to new position
+      const deltaX = currentPos - bounds.x;
+      const newX = shape.x + deltaX;
+      console.log(`[distributeShapes] Shape ${shape.id}: x ${shape.x} -> ${newX} (delta: ${deltaX})`);
+      updates.push({ id: shape.id, x: Math.round(newX * 100) / 100 });
     } else {
-      currentPos += sortedShapes[index - 1].height + gap;
-      updates.push({ id: shape.id, y: currentPos });
+      currentPos += sortedShapeData[index - 1].bounds.height + gap;
+      // Calculate the delta from current bounding box position to new position
+      const deltaY = currentPos - bounds.y;
+      const newY = shape.y + deltaY;
+      console.log(`[distributeShapes] Shape ${shape.id}: y ${shape.y} -> ${newY} (delta: ${deltaY})`);
+      updates.push({ id: shape.id, y: Math.round(newY * 100) / 100 });
     }
   });
 
-  // Batch update all shapes
-  await Promise.all(
-    updates.map(({ id, x, y }) => {
-      const update: ShapeUpdateData = {};
-      if (x !== undefined) update.x = x;
-      if (y !== undefined) update.y = y;
-      return updateShape(canvasId, id, update);
-    })
-  );
+  if (updates.length === 0) {
+    console.log('[distributeShapes] No updates needed');
+    return;
+  }
+
+  console.log('[distributeShapes] Applying updates:', updates);
+
+  // Apply all updates in a single atomic operation to avoid race conditions
+  const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
+  const canvasSnap = await getDoc(canvasRef);
+  const currentData = canvasSnap.data() as CanvasDocument;
+  
+  // Create a map of updates for quick lookup
+  const updateMap = new Map(updates.map(u => [u.id, u]));
+  
+  // Apply updates to the shapes array
+  const now = Timestamp.now();
+  const updatedShapes = currentData.shapes.map(shape => {
+    const update = updateMap.get(shape.id);
+    if (update) {
+      return {
+        ...shape,
+        ...(update.x !== undefined && { x: update.x }),
+        ...(update.y !== undefined && { y: update.y }),
+        lastModifiedAt: now,
+      };
+    }
+    return shape;
+  });
+
+  // Write all changes atomically
+  await updateDoc(canvasRef, {
+    shapes: updatedShapes,
+    lastUpdated: serverTimestamp(),
+  });
+
+  console.log('[distributeShapes] Distribution complete');
 };
 
 

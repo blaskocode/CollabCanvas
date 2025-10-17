@@ -33,6 +33,14 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   const [strokeWidth, setStrokeWidth] = useState(shape?.strokeWidth || 2);
   const [opacity, setOpacity] = useState(shape?.opacity || 100);
   const [cornerRadius, setCornerRadius] = useState(shape?.cornerRadius || 0);
+  
+  // Text-specific state
+  const [fontSize, setFontSize] = useState(shape?.fontSize || 16);
+  const [fontFamily, setFontFamily] = useState(shape?.fontFamily || 'Arial');
+  const [fontWeight, setFontWeight] = useState(shape?.fontWeight || 'normal');
+  const [fontStyle, setFontStyle] = useState(shape?.fontStyle || 'normal');
+  const [textDecoration, setTextDecoration] = useState(shape?.textDecoration || '');
+  const [textAlign, setTextAlign] = useState(shape?.textAlign || 'center');
 
   // Debounce timer refs
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,6 +71,16 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
       setStrokeWidth(shape.strokeWidth || 2);
       setOpacity(shape.opacity || 100);
       setCornerRadius(shape.cornerRadius || 0);
+      
+      // Text properties
+      if (shape.type === 'text') {
+        setFontSize(shape.fontSize || 16);
+        setFontFamily(shape.fontFamily || 'Arial');
+        setFontWeight(shape.fontWeight || 'normal');
+        setFontStyle(shape.fontStyle || 'normal');
+        setTextDecoration(shape.textDecoration || '');
+        setTextAlign(shape.textAlign || 'center');
+      }
     }
   }, [shape?.id]); // Only reset when shape ID changes
 
@@ -130,6 +148,51 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
   const handleCornerRadiusChange = (value: number) => {
     setCornerRadius(value);
     debouncedUpdate({ cornerRadius: value });
+  };
+
+  // Text formatting handlers
+  const handleFontSizeChange = (value: number) => {
+    setFontSize(value);
+    debouncedUpdate({ fontSize: value });
+  };
+
+  const handleFontFamilyChange = (value: string) => {
+    setFontFamily(value);
+    onUpdate({ fontFamily: value });
+  };
+
+  const handleFontWeightToggle = () => {
+    const newWeight = fontWeight === 'bold' ? 'normal' : 'bold';
+    setFontWeight(newWeight);
+    onUpdate({ fontWeight: newWeight });
+  };
+
+  const handleFontStyleToggle = () => {
+    const newStyle = fontStyle === 'italic' ? 'normal' : 'italic';
+    setFontStyle(newStyle);
+    onUpdate({ fontStyle: newStyle });
+  };
+
+  const handleTextDecorationToggle = (decoration: string) => {
+    const decorations = textDecoration.split(' ').filter(d => d);
+    const hasDecoration = decorations.includes(decoration);
+    
+    let newDecoration: string;
+    if (hasDecoration) {
+      // Remove the decoration
+      newDecoration = decorations.filter(d => d !== decoration).join(' ');
+    } else {
+      // Add the decoration
+      newDecoration = [...decorations, decoration].join(' ');
+    }
+    
+    setTextDecoration(newDecoration);
+    onUpdate({ textDecoration: newDecoration });
+  };
+
+  const handleTextAlignChange = (align: 'left' | 'center' | 'right') => {
+    setTextAlign(align);
+    onUpdate({ textAlign: align });
   };
 
   const isRectangle = shape.type === 'rectangle';
@@ -242,6 +305,138 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ shape, onUpdate }) => {
           className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
         />
       </div>
+
+      {/* Text Formatting Controls (Text shapes only) */}
+      {isText && (
+        <div className="space-y-3 pt-2 border-t border-gray-200">
+          <div className="text-xs font-semibold text-gray-700">Text Formatting</div>
+          
+          {/* Font Size */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-700 block">
+              Font Size: {fontSize}px
+            </label>
+            <input
+              type="range"
+              min="8"
+              max="72"
+              value={fontSize}
+              onChange={(e) => handleFontSizeChange(Number(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+
+          {/* Font Family */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-700 block">
+              Font Family
+            </label>
+            <select
+              value={fontFamily}
+              onChange={(e) => handleFontFamilyChange(e.target.value)}
+              className="w-full px-2 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="Arial">Arial</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Comic Sans MS">Comic Sans MS</option>
+            </select>
+          </div>
+
+          {/* Text Style Toggles */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleFontWeightToggle}
+              className={`flex-1 px-2 py-1 text-xs font-bold rounded-lg transition-colors ${
+                fontWeight === 'bold'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              title="Bold"
+            >
+              B
+            </button>
+            <button
+              onClick={handleFontStyleToggle}
+              className={`flex-1 px-2 py-1 text-xs italic rounded-lg transition-colors ${
+                fontStyle === 'italic'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              title="Italic"
+            >
+              I
+            </button>
+            <button
+              onClick={() => handleTextDecorationToggle('underline')}
+              className={`flex-1 px-2 py-1 text-xs underline rounded-lg transition-colors ${
+                textDecoration.includes('underline')
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              title="Underline"
+            >
+              U
+            </button>
+            <button
+              onClick={() => handleTextDecorationToggle('line-through')}
+              className={`flex-1 px-2 py-1 text-xs line-through rounded-lg transition-colors ${
+                textDecoration.includes('line-through')
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              title="Strikethrough"
+            >
+              S
+            </button>
+          </div>
+
+          {/* Text Alignment */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-700 block">
+              Text Alignment
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleTextAlignChange('left')}
+                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                  textAlign === 'left'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                title="Align Left"
+              >
+                ⫿
+              </button>
+              <button
+                onClick={() => handleTextAlignChange('center')}
+                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                  textAlign === 'center'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                title="Align Center"
+              >
+                ⊞
+              </button>
+              <button
+                onClick={() => handleTextAlignChange('right')}
+                className={`flex-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                  textAlign === 'right'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                title="Align Right"
+              >
+                ⫾
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transform Properties Display */}
       {(shape.rotation !== undefined && shape.rotation !== 0) || 

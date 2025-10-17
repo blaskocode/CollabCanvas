@@ -12,12 +12,13 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "type-check": "tsc --noEmit",
-    "cleanup:presence": "tsx scripts/cleanup-presence.ts"
+    "cleanup:presence": "tsx scripts/cleanup-presence.ts",
+    "deploy": "npm run build && vercel --prebuilt --prod"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.65.0",
     "firebase": "^12.4.0",
     "konva": "^10.0.2",
+    "openai": "^6.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hot-toast": "^2.6.0",
@@ -45,6 +46,7 @@
     "tsx": "^4.19.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.45.0",
+    "vercel": "^37.0.0",
     "vite": "^7.1.7",
     "vitest": "^3.2.4"
   }

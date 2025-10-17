@@ -14,7 +14,7 @@ interface GridOverlayProps {
 const GridOverlay: React.FC<GridOverlayProps> = ({ visible }) => {
   if (!visible) return null;
 
-  const lines: JSX.Element[] = [];
+  const lines: React.ReactElement[] = [];
 
   // Vertical lines
   for (let x = 0; x <= CANVAS_WIDTH; x += GRID_SIZE) {

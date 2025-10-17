@@ -54,11 +54,11 @@ export function AIInput() {
           await deleteShape(shapeId);
         },
         
-        alignShapes: async (shapeIds: string[], alignType: string) => {
+        alignShapes: async (_shapeIds: string[], alignType: string) => {
           await alignShapes(alignType as 'left' | 'right' | 'centerH' | 'top' | 'centerV' | 'bottom');
         },
         
-        distributeShapes: async (shapeIds: string[], direction: string) => {
+        distributeShapes: async (_shapeIds: string[], direction: string) => {
           await distributeShapes(direction as 'horizontal' | 'vertical');
         },
         

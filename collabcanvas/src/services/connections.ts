@@ -5,7 +5,6 @@
 
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { GLOBAL_CANVAS_ID } from '../utils/constants';
 import type { Connection, ConnectionCreateData, ConnectionUpdateData } from '../utils/types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -43,14 +42,6 @@ export async function addConnection(
   // Only add optional fields if they're defined
   if (connectionData.label !== undefined && connectionData.label !== null) {
     connection.label = connectionData.label;
-  }
-  
-  if (connectionData.lastModifiedBy) {
-    connection.lastModifiedBy = connectionData.lastModifiedBy;
-  }
-  
-  if (connectionData.lastModifiedAt) {
-    connection.lastModifiedAt = connectionData.lastModifiedAt;
   }
   
   // Add to connections array

@@ -145,7 +145,6 @@ function layoutHorizontal(
   const nodePositions = new Map<string, { x: number; y: number }>();
   const nodeColumns = new Map<string, number>(); // Track column for each node
   
-  let currentColumn = 0;
   const columnPositions = new Map<number, number>(); // Y positions for each column
   columnPositions.set(0, startY);
   

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Arrow, Group, Text as KonvaText, Rect } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import type { Connection, Shape, ArrowType } from '../../../utils/types';
+import type { Connection, Shape } from '../../../utils/types';
 import { getAnchorPosition } from '../../../utils/anchor-snapping';
 
 interface ConnectorProps {

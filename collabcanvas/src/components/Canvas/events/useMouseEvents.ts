@@ -378,6 +378,7 @@ export const useMouseEvents = ({
     
     // End box selection (actual selection happens in parent)
     setIsBoxSelecting(false);
+    setBoxSelect(null); // Clear the box visual
     
     // End panning
     if (isPanning) {

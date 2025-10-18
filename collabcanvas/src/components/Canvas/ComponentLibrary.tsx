@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useCanvasContext } from '../../contexts/CanvasContext';
+import { useCanvasContext } from '../../contexts/canvas';
 import { useToast } from '../../hooks/useToast';
 
 interface ComponentLibraryProps {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useCanvasContext } from '../../contexts/CanvasContext';
+import { useCanvasContext } from '../../contexts/canvas';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import type { Comment } from '../../utils/types';

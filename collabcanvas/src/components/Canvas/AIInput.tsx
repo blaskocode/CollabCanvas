@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { useCanvasContext } from '../../contexts/CanvasContext';
+import { useCanvasContext } from '../../contexts/canvas';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { runAIAgent, type CanvasOperations } from '../../services/ai';

@@ -3,7 +3,7 @@
  * Provides unified context for canvas operations without centralized state logic
  */
 
-import React, { createContext, useContext, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCanvas } from '../../hooks/useCanvas';
 import { useSelectionState } from './state/useSelectionState';
@@ -24,16 +24,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { currentUser, loading: authLoading } = useAuth();
 
   // Viewport state (pan/zoom)
-  const { stagePos, stageScale, stageRef, setStagePos, setStageScale } = useViewportState();
+  const { stageRef } = useViewportState();
 
   // Selection state
   const selectionState = useSelectionState();
 
   // Snapping state (grid/guides)
   const snappingState = useSnappingState();
-
-  // Editing state (inline text editor)
-  const editingState = useEditingState();
 
   // Get connections from Firestore
   const { connections: connectionsFromFirestore } = useCanvas(

@@ -45,13 +45,13 @@ import {
   unresolveComment as unresolveCommentService,
   subscribeToComments
 } from '../../../services/comments';
-import type { ShapeUpdateData, ShapeType, ShapeCreateData, Shape, Component, ComponentUpdateData, Comment, CommentUpdateData, Group } from '../../../utils/types';
+import type { ShapeUpdateData, ShapeType, ShapeCreateData, Shape, Component, ComponentUpdateData, Comment, CommentUpdateData, ShapeGroup } from '../../../utils/types';
 import type Konva from 'konva';
 import { GLOBAL_CANVAS_ID, CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../utils/constants';
 
 export interface ShapesState {
   shapes: Shape[];
-  groups: Group[];
+  groups: ShapeGroup[];
   components: Component[];
   comments: Comment[];
   loading: boolean;

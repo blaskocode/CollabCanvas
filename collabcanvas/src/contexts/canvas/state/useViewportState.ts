@@ -10,7 +10,7 @@ import { MIN_ZOOM, MAX_ZOOM } from '../../../utils/constants';
 export interface ViewportState {
   stagePos: { x: number; y: number };
   stageScale: number;
-  stageRef: React.RefObject<Konva.Stage>;
+  stageRef: React.RefObject<Konva.Stage | null>;
 }
 
 export interface ViewportActions {

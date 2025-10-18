@@ -19,12 +19,12 @@ export interface MouseEventsState {
   
   // Drawing mode
   isDrawingMode: boolean;
-  drawingShapeType: ShapeType['type'] | null;
+  drawingShapeType: ShapeType | null;
   drawingPreview: { x: number; y: number; width: number; height: number } | null;
   
   // Placement mode
   isPlacementMode: boolean;
-  placementShapeType: ShapeType['type'] | null;
+  placementShapeType: ShapeType | null;
   placementPreview: { x: number; y: number } | null;
   
   // Panning
@@ -40,11 +40,11 @@ export interface MouseEventsActions {
   setSelectionMode: (mode: 'box' | 'lasso') => void;
   
   // Drawing mode
-  enterDrawingMode: (shapeType: ShapeType['type']) => void;
+  enterDrawingMode: (shapeType: ShapeType) => void;
   exitDrawingMode: () => void;
   
   // Placement mode
-  enterPlacementMode: (shapeType: ShapeType['type']) => void;
+  enterPlacementMode: (shapeType: ShapeType) => void;
   exitPlacementMode: () => void;
   
   // Space key panning
@@ -62,7 +62,7 @@ export interface UseMouseEventsProps {
   stageRef: React.RefObject<Konva.Stage>;
   shapes: any[];
   defaultWorkflowShapeSizes: Record<string, { width: number; height: number }>;
-  addShape: (type: ShapeType['type'], position: { x: number; y: number }, props?: any) => Promise<string>;
+  addShape: (type: ShapeType, position: { x: number; y: number }, props?: any) => Promise<string>;
   selectShapesInLasso: (path: Array<{ x: number; y: number }>) => void;
   setStagePos: (pos: { x: number; y: number }) => void;
   isDraggingShapeRef: React.RefObject<boolean>;
@@ -94,13 +94,13 @@ export const useMouseEvents = ({
   
   // Drawing mode state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [drawingShapeType, setDrawingShapeType] = useState<ShapeType['type'] | null>(null);
+  const [drawingShapeType, setDrawingShapeType] = useState<ShapeType | null>(null);
   const [drawingPreview, setDrawingPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const drawingStartRef = useRef<{ x: number; y: number } | null>(null);
   
   // Placement mode state
   const [isPlacementMode, setIsPlacementMode] = useState(false);
-  const [placementShapeType, setPlacementShapeType] = useState<ShapeType['type'] | null>(null);
+  const [placementShapeType, setPlacementShapeType] = useState<ShapeType | null>(null);
   const [placementPreview, setPlacementPreview] = useState<{ x: number; y: number } | null>(null);
   
   // Panning state
@@ -111,7 +111,7 @@ export const useMouseEvents = ({
   /**
    * Enter drawing mode
    */
-  const enterDrawingMode = useCallback((shapeType: ShapeType['type']) => {
+  const enterDrawingMode = useCallback((shapeType: ShapeType) => {
     setIsDrawingMode(true);
     setDrawingShapeType(shapeType);
     setDrawingPreview(null);
@@ -131,7 +131,7 @@ export const useMouseEvents = ({
   /**
    * Enter placement mode
    */
-  const enterPlacementMode = useCallback((shapeType: ShapeType['type']) => {
+  const enterPlacementMode = useCallback((shapeType: ShapeType) => {
     setIsPlacementMode(true);
     setPlacementShapeType(shapeType);
     setPlacementPreview(null);
@@ -169,7 +169,7 @@ export const useMouseEvents = ({
       
       // Place shape at the preview position
       await addShape(
-        placementShapeType as ShapeType['type'], 
+        placementShapeType, 
         { x: placementPreview.x, y: placementPreview.y }, 
         { 
           width: shapeSize.width, 
@@ -344,7 +344,7 @@ export const useMouseEvents = ({
         const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
         const newZIndex = maxZIndex + 1;
         
-        const shapeType = drawingShapeType as ShapeType['type'];
+        const shapeType = drawingShapeType;
         
         // Create shape based on type
         if (shapeType === 'circle') {

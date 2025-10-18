@@ -26,7 +26,7 @@ export type UseViewportStateReturn = ViewportState & ViewportActions;
  * Includes stage ref for Konva interactions
  */
 export const useViewportState = (): UseViewportStateReturn => {
-  const stageRef = useRef<Konva.Stage>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
 

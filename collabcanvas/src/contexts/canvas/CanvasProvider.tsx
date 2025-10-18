@@ -24,7 +24,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { currentUser, loading: authLoading } = useAuth();
 
   // Viewport state (pan/zoom)
-  const { stageRef } = useViewportState();
+  const viewportState = useViewportState();
 
   // Selection state
   const selectionState = useSelectionState();
@@ -70,7 +70,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isSelected: selectionState.isSelected,
     
     // Viewport
-    stageRef,
+    stageRef: viewportState.stageRef,
     
     // Shape CRUD
     addShape: shapesState.addShape,
@@ -124,11 +124,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Clipboard
     copyShapes: shapesState.copyShapes,
     cutShapes: shapesState.cutShapes,
-    pasteShapes: () => shapesState.pasteShapes(stageRef),
+    pasteShapes: () => shapesState.pasteShapes(viewportState.stageRef),
     hasClipboardData: shapesState.hasClipboardData,
     
     // Export
-    exportCanvas: (format, exportType) => shapesState.exportCanvas(format, exportType, stageRef, selectionState.selectedIds),
+    exportCanvas: (format, exportType) => shapesState.exportCanvas(format, exportType, viewportState.stageRef, selectionState.selectedIds),
     
     // Grid/snapping
     gridEnabled: snappingState.gridEnabled,
@@ -142,7 +142,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     createComponent: (name, description) => shapesState.createComponent(name, selectionState.selectedIds, description),
     deleteComponent: shapesState.deleteComponent,
     updateComponent: shapesState.updateComponent,
-    insertComponent: (id, position) => shapesState.insertComponent(id, stageRef, selectionState.selectMultipleShapes, position),
+    insertComponent: (id, position) => shapesState.insertComponent(id, viewportState.stageRef, selectionState.selectMultipleShapes, position),
     components: shapesState.components,
     
     // Comments
@@ -160,7 +160,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     selectionState,
     connectionsState,
     snappingState,
-    stageRef,
+    viewportState,
     currentUser,
   ]);
 

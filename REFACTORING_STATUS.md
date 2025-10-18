@@ -51,14 +51,17 @@ collabcanvas/src/contexts/canvas/
 ## 🚧 IN PROGRESS: Canvas.tsx Refactoring
 
 ### Summary
-Canvas.tsx (3558 LOC) is partially refactored. Event hooks have been extracted but layer components and final orchestration remain.
+Canvas.tsx (3558 LOC) is partially refactored. Event hooks are being extracted systematically.
 
 ### Files Created
 
 ```
 collabcanvas/src/components/Canvas/events/
 ├── useWheelZoom.ts                   # Zoom functionality (160 LOC) ✅
-└── useContextMenu.ts                 # Context menu (63 LOC) ✅
+├── useContextMenu.ts                 # Context menu (63 LOC) ✅
+└── useMouseEvents.ts                 # Mouse events & selection (486 LOC) ✅
+
+Total extracted: 709 LOC across 3 event hooks
 ```
 
 ### Remaining Work

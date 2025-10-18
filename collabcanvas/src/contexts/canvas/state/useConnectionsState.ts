@@ -9,7 +9,7 @@ import {
   addConnection as addConnectionService,
   updateConnection as updateConnectionService,
   deleteConnection as deleteConnectionService,
-  getShapeConnections as getShapeConnectionsService
+  getShapeConnections as getShapeConnectionsService,
 } from '../../../services/connections';
 import type { Connection, ConnectionCreateData, ConnectionUpdateData } from '../../../utils/types';
 import { GLOBAL_CANVAS_ID } from '../../../utils/constants';

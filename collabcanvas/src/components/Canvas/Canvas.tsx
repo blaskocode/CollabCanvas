@@ -3,7 +3,7 @@ import { Stage, Layer, Transformer, Rect, Circle as KonvaCircle, Line as KonvaLi
 import type Konva from 'konva';
 import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { useCanvasContext } from '../../contexts/CanvasContext';
+import { useCanvasContext } from '../../contexts/canvas';
 import { useAuth } from '../../hooks/useAuth';
 import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';

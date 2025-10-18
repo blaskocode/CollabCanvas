@@ -1,33 +1,42 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { useCanvas } from '../hooks/useCanvas';
-import { useHistory } from '../hooks/useHistory';
-import { useClipboard } from './ClipboardContext';
-import { lockShape as lockShapeService, unlockShape as unlockShapeService, createShape as createShapeService, alignShapes as alignShapesService, distributeShapes as distributeShapesService, clearAllShapes as clearAllShapesService, restoreAllShapes as restoreAllShapesService, deleteMultipleShapes as deleteMultipleShapesService } from '../services/canvas';
+/**
+ * @fileoverview Shapes state management with CRUD operations and Firestore sync
+ * Handles shape operations, groups, history integration, and batching
+ */
+
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { doc, collection } from 'firebase/firestore';
+import { db } from '../../../services/firebase';
+import { useCanvas } from '../../../hooks/useCanvas';
+import { useHistory } from '../../../hooks/useHistory';
+import { useClipboard } from '../../ClipboardContext';
 import { 
-  createGroup as createGroupService, 
-  ungroupShapes as ungroupShapesService, 
-  deleteGroupRecursive, 
+  lockShape as lockShapeService, 
+  unlockShape as unlockShapeService, 
+  createShape as createShapeService, 
+  alignShapes as alignShapesService, 
+  distributeShapes as distributeShapesService,
+  clearAllShapes as clearAllShapesService,
+  restoreAllShapes as restoreAllShapesService,
+  deleteMultipleShapes as deleteMultipleShapesService
+} from '../../../services/canvas';
+import {
+  createGroup as createGroupService,
+  ungroupShapes as ungroupShapesService,
+  deleteGroupRecursive,
   updateGroupStyle as updateGroupStyleService,
   duplicateGroup as duplicateGroupService,
   getGroupShapesRecursive,
   updateGroupBounds as updateGroupBoundsService
-} from '../services/grouping';
-import {
-  addConnection as addConnectionService,
-  updateConnection as updateConnectionService,
-  deleteConnection as deleteConnectionService,
-  getShapeConnections as getShapeConnectionsService,
-  deleteShapeConnections
-} from '../services/connections';
-import { serializeShapes, calculatePasteOffset, applyOffsetToShapes, isClipboardDataValid } from '../utils/clipboard';
-import { exportCanvas as exportCanvasUtil } from '../utils/export';
+} from '../../../services/grouping';
+import { deleteShapeConnections } from '../../../services/connections';
+import { serializeShapes, calculatePasteOffset, applyOffsetToShapes, isClipboardDataValid } from '../../../utils/clipboard';
+import { exportCanvas as exportCanvasUtil } from '../../../utils/export';
 import {
   createComponent as createComponentService,
   deleteComponent as deleteComponentService,
   updateComponent as updateComponentService,
   subscribeToComponents
-} from '../services/components';
+} from '../../../services/components';
 import {
   createComment as createCommentService,
   updateComment as updateCommentService,
@@ -35,32 +44,129 @@ import {
   resolveComment as resolveCommentService,
   unresolveComment as unresolveCommentService,
   subscribeToComments
-} from '../services/comments';
-import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection, Component, ComponentUpdateData, Comment, CommentUpdateData } from '../utils/types';
+} from '../../../services/comments';
+import type { ShapeUpdateData, ShapeType, ShapeCreateData, Shape, Component, ComponentUpdateData, Comment, CommentUpdateData, ShapeGroup } from '../../../utils/types';
 import type Konva from 'konva';
-import { GLOBAL_CANVAS_ID, CANVAS_WIDTH, CANVAS_HEIGHT } from '../utils/constants';
-import { doc, collection, Timestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { GLOBAL_CANVAS_ID, CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../utils/constants';
 
-const CanvasContext = createContext<CanvasContextType | undefined>(undefined);
+export interface ShapesState {
+  shapes: Shape[];
+  groups: ShapeGroup[];
+  components: Component[];
+  comments: Comment[];
+  loading: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  hasClipboardData: boolean;
+}
+
+export interface ShapesActions {
+  // Shape CRUD
+  addShape: (type: ShapeType, position: { x: number; y: number }, customProperties?: Partial<ShapeCreateData>) => Promise<string>;
+  updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
+  deleteShape: (id: string) => Promise<void>;
+  deleteMultipleShapes: (ids: string[]) => Promise<void>;
+  duplicateShape: (id: string) => Promise<void>;
+  
+  // Arrow key movement
+  moveShapesByArrowKey: (shapeIds: string[], dx: number, dy: number) => void;
+  saveArrowKeyMovementToHistory: (shapeIds: string[], totalDx: number, totalDy: number, originalPositions: Map<string, { x: number; y: number }>) => void;
+  
+  // Shape locking
+  lockShape: (id: string) => Promise<void>;
+  unlockShape: (id: string) => Promise<void>;
+  
+  // Z-index
+  bringForward: (id: string) => Promise<void>;
+  sendBack: (id: string) => Promise<void>;
+  
+  // Alignment & distribution
+  alignShapes: (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom') => Promise<void>;
+  distributeShapes: (direction: 'horizontal' | 'vertical') => Promise<void>;
+  
+  // Groups
+  groupShapes: (shapeIds: string[]) => Promise<string>;
+  ungroupShapes: (groupId: string) => Promise<void>;
+  deleteGroup: (groupId: string) => Promise<void>;
+  updateGroupStyle: (groupId: string, styleUpdates: Partial<Pick<Shape, 'fill' | 'stroke' | 'strokeWidth' | 'opacity'>>) => Promise<void>;
+  updateGroupBounds: (groupId: string) => Promise<void>;
+  duplicateGroup: (groupId: string) => Promise<string>;
+  getGroupShapes: (groupId: string) => Shape[];
+  
+  // History
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+  
+  // Canvas operations
+  clearAll: () => Promise<void>;
+  
+  // Clipboard
+  copyShapes: (shapeIds: string[]) => void;
+  cutShapes: (shapeIds: string[]) => Promise<void>;
+  pasteShapes: (stageRef: React.RefObject<Konva.Stage | null>) => Promise<void>;
+  
+  // Export
+  exportCanvas: (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection', stageRef: React.RefObject<Konva.Stage | null>, selectedIds: string[]) => void;
+  
+  // Selection utilities
+  selectShapesByType: (shapeType: string, onSelect: (ids: string[]) => void) => void;
+  selectShapesInLasso: (lassoPolygon: Array<{ x: number; y: number }>, onSelect: (ids: string[]) => void) => void;
+  
+  // Components
+  createComponent: (name: string, selectedIds: string[], description?: string) => Promise<string>;
+  deleteComponent: (componentId: string) => Promise<void>;
+  updateComponent: (componentId: string, updates: ComponentUpdateData) => Promise<void>;
+  insertComponent: (componentId: string, stageRef: React.RefObject<Konva.Stage | null>, onSelect: (ids: string[]) => void, position?: { x: number; y: number }) => Promise<void>;
+  
+  // Comments
+  createComment: (text: string, shapeId: string, position?: { x: number; y: number }, parentId?: string) => Promise<string>;
+  updateComment: (commentId: string, updates: CommentUpdateData) => Promise<void>;
+  deleteComment: (commentId: string) => Promise<void>;
+  resolveComment: (commentId: string) => Promise<void>;
+  unresolveComment: (commentId: string) => Promise<void>;
+  getShapeComments: (shapeId: string) => Comment[];
+  getShapeCommentCount: (shapeId: string) => number;
+  getShapeUnresolvedCommentCount: (shapeId: string) => number;
+}
+
+export type UseShapesStateReturn = ShapesState & ShapesActions;
+
+interface UseShapesStateProps {
+  currentUserId: string | null;
+  authLoading: boolean;
+  selectedIds: string[];
+  onClearSelection: () => void;
+  onSelectMultiple: (ids: string[]) => void;
+}
 
 /**
- * CanvasProvider component
- * Provides canvas state and methods to add/update/delete shapes
- * 
- * @param children - Child components to be wrapped by the provider
+ * @description Manages shapes, groups, and all shape operations
+ * Integrates with Firestore, history, and clipboard
  */
-export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, loading: authLoading } = useAuth();
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
-  const stageRef = useRef<Konva.Stage>(null);
+export const useShapesState = ({
+  currentUserId,
+  authLoading,
+  selectedIds,
+  onClearSelection,
+  onSelectMultiple,
+}: UseShapesStateProps): UseShapesStateReturn => {
+  // History for undo/redo
+  const history = useHistory();
+  const isPerformingHistoryAction = useRef(false);
   
-  // Grid snapping - Load from localStorage or default to true
-  const [gridEnabled, setGridEnabled] = useState(() => {
-    const saved = localStorage.getItem('collabcanvas-grid-enabled');
-    return saved !== null ? saved === 'true' : true; // Default to true
-  });
+  // Clipboard
+  const { clipboardData, setClipboardData, incrementPasteCount, resetPasteCount } = useClipboard();
+  
+  // Use the canvas hook for real-time synchronization
+  const {
+    shapes,
+    groups,
+    connections: _connections,
+    loading,
+    addShape: addShapeHook,
+    updateShape: updateShapeHook,
+    deleteShape: deleteShapeHook,
+  } = useCanvas(currentUserId || 'anonymous', !authLoading);
   
   // Components state
   const [components, setComponents] = useState<Component[]>([]);
@@ -68,55 +174,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Comments state
   const [comments, setComments] = useState<Comment[]>([]);
   
-  // Clipboard for copy/cut/paste
-  const { clipboardData, setClipboardData, incrementPasteCount, resetPasteCount } = useClipboard();
-  
-  // History for undo/redo
-  const history = useHistory();
-  const isPerformingHistoryAction = useRef(false); // Track if we're in undo/redo to avoid recording
-  
-  // Use the canvas hook for real-time synchronization
-  // Wait for auth to be ready (not loading) before subscribing to Firestore
-  const {
-    shapes,
-    groups,
-    connections: connectionsFromFirestore,
-    loading,
-    addShape: addShapeHook,
-    updateShape: updateShapeHook,
-    deleteShape: deleteShapeHook,
-  } = useCanvas(currentUser?.uid || 'anonymous', !authLoading);
-  
-  // Local optimistic connection updates (to provide immediate UI feedback)
-  const [optimisticConnectionUpdates, setOptimisticConnectionUpdates] = useState<Map<string, Partial<Connection>>>(new Map());
-  
-  // Merge Firestore connections with optimistic updates
-  const connections = useMemo(() => {
-    return connectionsFromFirestore.map(conn => {
-      const optimisticUpdate = optimisticConnectionUpdates.get(conn.id);
-      if (!optimisticUpdate) return conn;
-      
-      // Merge updates, and explicitly delete fields that are set to undefined
-      const merged = { ...conn, ...optimisticUpdate };
-      Object.keys(optimisticUpdate).forEach(key => {
-        if (optimisticUpdate[key as keyof typeof optimisticUpdate] === undefined) {
-          delete merged[key as keyof typeof merged];
-        }
-      });
-      
-      return merged;
-    });
-  }, [connectionsFromFirestore, optimisticConnectionUpdates]);
-  
-  // Backward compatibility: selectedId is the first selected shape (or null)
-  const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
-  
   // Track previous shapes to detect additions for history recording
   const prevShapesRef = useRef<string[]>([]);
   
   // Detect new shapes and record them in history
   useEffect(() => {
-    if (isPerformingHistoryAction.current || !currentUser) return;
+    if (isPerformingHistoryAction.current || !currentUserId) return;
     
     const currentShapeIds = shapes.map(s => s.id);
     const prevShapeIds = prevShapesRef.current;
@@ -127,21 +190,21 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Record new shapes to history
     newShapeIds.forEach(shapeId => {
       const newShape = shapes.find(s => s.id === shapeId);
-      if (newShape && newShape.createdBy === currentUser.uid) {
+      if (newShape && newShape.createdBy === currentUserId) {
         history.recordAction({
           type: 'create',
           shapesAffected: [shapeId],
           before: {},
           after: { [shapeId]: { ...newShape } },
           timestamp: Date.now(),
-          userId: currentUser.uid,
+          userId: currentUserId,
         });
       }
     });
     
     // Update ref
     prevShapesRef.current = currentShapeIds;
-  }, [shapes, currentUser, history]);
+  }, [shapes, currentUserId, history]);
   
   // Subscribe to components
   useEffect(() => {
@@ -161,38 +224,22 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   /**
    * Add a new shape to the canvas
-   * Supports multiple shape types: rectangle, circle, text, line
-   * Syncs to Firestore in real-time
-   * 
-   * @param type - Shape type
-   * @param position - Position where the shape should be created
-   * @param customProperties - Optional custom properties to override defaults
-   * @returns The ID of the created shape
    */
-  const addShape = async (
+  const addShape = useCallback(async (
     type: ShapeType,
     position: { x: number; y: number },
     customProperties?: Partial<ShapeCreateData>
   ): Promise<string> => {
     const shapeId = await addShapeHook(type, position, customProperties);
-    
-    // Record action after shape is added (skip if in undo/redo)
-    // Note: We can't easily capture the new shape here due to async Firestore updates
-    // History recording for create actions will happen via the shapes listener
-    
     return shapeId;
-  };
+  }, [addShapeHook]);
 
   /**
    * Update an existing shape
-   * Syncs to Firestore in real-time
-   * 
-   * @param id - Shape ID to update
-   * @param updates - Partial shape data to update
    */
-  const updateShape = async (id: string, updates: ShapeUpdateData): Promise<void> => {
+  const updateShape = useCallback(async (id: string, updates: ShapeUpdateData): Promise<void> => {
     // Skip recording if we're in undo/redo
-    if (isPerformingHistoryAction.current || !currentUser) {
+    if (isPerformingHistoryAction.current || !currentUserId) {
       await updateShapeHook(id, updates);
       return;
     }
@@ -221,20 +268,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       before: { [id]: beforeState },
       after: { [id]: afterState },
       timestamp: Date.now(),
-      userId: currentUser.uid,
+      userId: currentUserId,
     });
     
     await updateShapeHook(id, updates);
-  };
+  }, [currentUserId, shapes, updateShapeHook, history]);
 
   /**
    * Move shapes by arrow keys (1px precision)
-   * Updates shape positions immediately without adding to history
-   * History is batched and added separately by saveArrowKeyMovementToHistory
-   * 
-   * @param shapeIds - Array of shape IDs to move
-   * @param dx - Horizontal movement delta (in pixels)
-   * @param dy - Vertical movement delta (in pixels)
    */
   const moveShapesByArrowKey = useCallback((shapeIds: string[], dx: number, dy: number) => {
     // First, check if the movement would cause any shape to go out of bounds
@@ -284,12 +325,6 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   /**
    * Save batched arrow key movements to history
-   * Called after the debounce timer completes
-   * 
-   * @param shapeIds - Array of shape IDs that were moved
-   * @param totalDx - Total horizontal movement
-   * @param totalDy - Total vertical movement
-   * @param originalPositions - Map of original positions before movement started
    */
   const saveArrowKeyMovementToHistory = useCallback((
     shapeIds: string[], 
@@ -297,7 +332,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     totalDy: number,
     originalPositions: Map<string, { x: number; y: number }>
   ) => {
-    if (!currentUser || (totalDx === 0 && totalDy === 0)) return;
+    if (!currentUserId || (totalDx === 0 && totalDy === 0)) return;
     
     // Build before and after states
     const before: Record<string, Partial<Shape>> = {};
@@ -320,22 +355,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       before,
       after,
       timestamp: Date.now(),
-      userId: currentUser.uid,
+      userId: currentUserId,
     });
-  }, [currentUser, shapes, history]);
+  }, [currentUserId, shapes, history]);
 
   /**
    * Delete a shape from the canvas
-   * Syncs to Firestore in real-time
-   * 
-   * @param id - Shape ID to delete
    */
-  const deleteShape = async (id: string): Promise<void> => {
+  const deleteShape = useCallback(async (id: string): Promise<void> => {
     // Skip recording if we're in undo/redo
-    if (isPerformingHistoryAction.current || !currentUser) {
+    if (isPerformingHistoryAction.current || !currentUserId) {
       await deleteShapeHook(id);
       if (selectedIds.includes(id)) {
-        setSelectedIds(selectedIds.filter(sid => sid !== id));
+        onClearSelection();
       }
       return;
     }
@@ -349,7 +381,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         before: { [id]: { ...shape } },
         after: {},
         timestamp: Date.now(),
-        userId: currentUser.uid,
+        userId: currentUserId,
       });
     }
     
@@ -360,23 +392,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await deleteShapeConnections(GLOBAL_CANVAS_ID, id);
     } catch (error) {
       console.error('Error deleting shape connections:', error);
-      // Don't throw - shape deletion should still succeed even if connection cleanup fails
     }
     
     // Clear selection if deleted shape was selected
     if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter(sid => sid !== id));
+      onClearSelection();
     }
-  };
+  }, [currentUserId, shapes, deleteShapeHook, history, selectedIds, onClearSelection]);
 
   /**
    * Delete multiple shapes in a single atomic operation
-   * Much faster than calling deleteShape multiple times
-   * 
-   * @param ids - Array of shape IDs to delete
    */
-  const deleteMultipleShapes = async (ids: string[]): Promise<void> => {
-    if (!currentUser || ids.length === 0) return;
+  const deleteMultipleShapes = useCallback(async (ids: string[]): Promise<void> => {
+    if (!currentUserId || ids.length === 0) return;
     
     // Record history for all shapes
     const shapesToDelete = shapes.filter(s => ids.includes(s.id));
@@ -392,7 +420,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         before,
         after: {},
         timestamp: Date.now(),
-        userId: currentUser.uid,
+        userId: currentUserId,
       });
     }
     
@@ -406,104 +434,44 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     } catch (error) {
       console.error('Error deleting shape connections:', error);
-      // Don't throw - shape deletion should still succeed even if connection cleanup fails
     }
     
     // Clear selection
-    setSelectedIds([]);
-  };
-
-  /**
-   * Select or deselect a shape
-   * Supports multi-select with Shift key
-   * 
-   * @param id - Shape ID to select, or null to deselect all
-   * @param options - Options object with shift flag for multi-select
-   */
-  const selectShape = (id: string | null, options?: { shift?: boolean }): void => {
-    if (id === null) {
-      // Deselect all
-      setSelectedIds([]);
-      setSelectedConnectionId(null);
-      return;
-    }
-    
-    // Deselect any selected connection when selecting a shape
-    setSelectedConnectionId(null);
-    
-    if (options?.shift) {
-      // Shift+click: toggle shape in selection
-      if (selectedIds.includes(id)) {
-        setSelectedIds(selectedIds.filter(sid => sid !== id));
-      } else {
-        setSelectedIds([...selectedIds, id]);
-      }
-    } else {
-      // Normal click: select only this shape
-      setSelectedIds([id]);
-    }
-  };
-
-  /**
-   * Select multiple shapes at once
-   * Used for box selection to avoid state batching issues
-   * 
-   * @param ids - Array of shape IDs to select
-   */
-  const selectMultipleShapes = (ids: string[]): void => {
-    // Deselect any selected connection when selecting shapes
-    setSelectedConnectionId(null);
-    setSelectedIds(ids);
-  };
-
-  /**
-   * Check if a shape is currently selected
-   * 
-   * @param id - Shape ID to check
-   * @returns true if the shape is selected
-   */
-  const isSelected = (id: string): boolean => {
-    return selectedIds.includes(id);
-  };
+    onClearSelection();
+  }, [currentUserId, shapes, history, onClearSelection]);
 
   /**
    * Lock a shape for exclusive editing
-   * 
-   * @param id - Shape ID to lock
    */
-  const lockShape = async (id: string): Promise<void> => {
-    if (!currentUser) return;
+  const lockShape = useCallback(async (id: string): Promise<void> => {
+    if (!currentUserId) return;
     try {
-      await lockShapeService(GLOBAL_CANVAS_ID, id, currentUser.uid);
+      await lockShapeService(GLOBAL_CANVAS_ID, id, currentUserId);
     } catch (err) {
       console.error('Error locking shape:', err);
     }
-  };
+  }, [currentUserId]);
 
   /**
    * Unlock a shape
-   * 
-   * @param id - Shape ID to unlock
    */
-  const unlockShape = async (id: string): Promise<void> => {
+  const unlockShape = useCallback(async (id: string): Promise<void> => {
     try {
       await unlockShapeService(GLOBAL_CANVAS_ID, id);
     } catch (err) {
       console.error('Error unlocking shape:', err);
     }
-  };
+  }, []);
 
   /**
    * Duplicate a shape with 20px offset
-   * 
-   * @param id - Shape ID to duplicate
    */
-  const duplicateShape = async (id: string): Promise<void> => {
+  const duplicateShape = useCallback(async (id: string): Promise<void> => {
     const shape = shapes.find(s => s.id === id);
-    if (!shape || !currentUser) return;
+    if (!shape || !currentUserId) return;
     
     // Check if shape is locked by another user
-    if (shape.isLocked && shape.lockedBy !== currentUser.uid) {
+    if (shape.isLocked && shape.lockedBy !== currentUserId) {
       console.error('Cannot duplicate locked shape');
       return;
     }
@@ -520,19 +488,18 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       type: shape.type,
       x: shape.x + 20,
       y: shape.y + 20,
-      createdBy: currentUser.uid,
+      createdBy: currentUserId,
     };
     
     await createShapeService(GLOBAL_CANVAS_ID, duplicatedShape);
     
     // Select the duplicated shape after creation
     setTimeout(() => {
-      selectShape(newId);
+      onSelectMultiple([newId]);
     }, 100);
     
     // Record the creation in history (skip if in undo/redo)
     if (!isPerformingHistoryAction.current) {
-      // Wait for Firestore to sync
       setTimeout(() => {
         const createdShape = shapes.find(s => s.id === newId);
         if (createdShape) {
@@ -542,21 +509,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             before: {},
             after: { [newId]: { ...createdShape } },
             timestamp: Date.now(),
-            userId: currentUser.uid,
+            userId: currentUserId,
           });
         }
       }, 200);
     }
-  };
+  }, [shapes, currentUserId, history, onSelectMultiple]);
 
   /**
    * Bring a shape forward (increase zIndex)
-   * 
-   * @param id - Shape ID to bring forward
    */
-  const bringForward = async (id: string): Promise<void> => {
+  const bringForward = useCallback(async (id: string): Promise<void> => {
     const shape = shapes.find(s => s.id === id);
-    if (!shape || !currentUser) return;
+    if (!shape || !currentUserId) return;
     
     const currentZIndex = shape.zIndex || 0;
     const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0));
@@ -573,22 +538,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           before: { [id]: { zIndex: currentZIndex } },
           after: { [id]: { zIndex: newZIndex } },
           timestamp: Date.now(),
-          userId: currentUser.uid,
+          userId: currentUserId,
         });
       }
       
       await updateShapeHook(id, { zIndex: newZIndex });
     }
-  };
+  }, [shapes, currentUserId, updateShapeHook, history]);
 
   /**
    * Send a shape back (decrease zIndex)
-   * 
-   * @param id - Shape ID to send back
    */
-  const sendBack = async (id: string): Promise<void> => {
+  const sendBack = useCallback(async (id: string): Promise<void> => {
     const shape = shapes.find(s => s.id === id);
-    if (!shape || !currentUser) return;
+    if (!shape || !currentUserId) return;
     
     const currentZIndex = shape.zIndex || 0;
     const minZIndex = Math.min(...shapes.map(s => s.zIndex || 0));
@@ -605,21 +568,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           before: { [id]: { zIndex: currentZIndex } },
           after: { [id]: { zIndex: newZIndex } },
           timestamp: Date.now(),
-          userId: currentUser.uid,
+          userId: currentUserId,
         });
       }
       
       await updateShapeHook(id, { zIndex: newZIndex });
     }
-  };
+  }, [shapes, currentUserId, updateShapeHook, history]);
 
   /**
    * Align selected shapes
-   * 
-   * @param alignType - Type of alignment
    */
-  const alignShapes = async (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom'): Promise<void> => {
-    if (selectedIds.length < 2 || !currentUser) return;
+  const alignShapes = useCallback(async (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom'): Promise<void> => {
+    if (selectedIds.length < 2 || !currentUserId) return;
     
     // Record before states (skip if in undo/redo)
     if (!isPerformingHistoryAction.current) {
@@ -650,21 +611,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           before,
           after,
           timestamp: Date.now(),
-          userId: currentUser.uid,
+          userId: currentUserId,
         });
       }, 200);
     } else {
       await alignShapesService(GLOBAL_CANVAS_ID, selectedIds, alignType, shapes);
     }
-  };
+  }, [selectedIds, currentUserId, shapes, history]);
 
   /**
    * Distribute selected shapes evenly
-   * 
-   * @param direction - Distribution direction
    */
-  const distributeShapes = async (direction: 'horizontal' | 'vertical'): Promise<void> => {
-    if (selectedIds.length < 3 || !currentUser) return;
+  const distributeShapes = useCallback(async (direction: 'horizontal' | 'vertical'): Promise<void> => {
+    if (selectedIds.length < 3 || !currentUserId) return;
     
     // Record before states (skip if in undo/redo)
     if (!isPerformingHistoryAction.current) {
@@ -695,28 +654,25 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           before,
           after,
           timestamp: Date.now(),
-          userId: currentUser.uid,
+          userId: currentUserId,
         });
       }, 200);
     } else {
       await distributeShapesService(GLOBAL_CANVAS_ID, selectedIds, direction, shapes);
     }
-  };
+  }, [selectedIds, currentUserId, shapes, history]);
 
   /**
    * Group selected shapes together
-   * 
-   * @param shapeIds - Array of shape IDs to group
-   * @returns The ID of the created group
    */
-  const groupShapes = async (shapeIds: string[]): Promise<string> => {
-    if (shapeIds.length < 2 || !currentUser) {
+  const groupShapes = useCallback(async (shapeIds: string[]): Promise<string> => {
+    if (shapeIds.length < 2 || !currentUserId) {
       throw new Error('Need at least 2 shapes to create a group');
     }
 
     // Skip recording if we're in undo/redo
     if (isPerformingHistoryAction.current) {
-      const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUser.uid, shapes);
+      const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUserId, shapes);
       return group.id;
     }
 
@@ -730,7 +686,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     // Create the group
-    const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUser.uid, shapes);
+    const group = await createGroupService(GLOBAL_CANVAS_ID, shapeIds, currentUserId, shapes);
 
     // Wait for Firestore sync
     setTimeout(() => {
@@ -745,20 +701,18 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         before,
         after,
         timestamp: Date.now(),
-        userId: currentUser.uid,
+        userId: currentUserId,
       });
     }, 200);
 
     return group.id;
-  };
+  }, [currentUserId, shapes, history]);
 
   /**
    * Ungroup shapes (remove group but keep shapes)
-   * 
-   * @param groupId - The group ID to ungroup
    */
-  const ungroupShapes = async (groupId: string): Promise<void> => {
-    if (!currentUser) return;
+  const ungroupShapes = useCallback(async (groupId: string): Promise<void> => {
+    if (!currentUserId) return;
 
     const group = groups.find(g => g.id === groupId);
     if (!group) {
@@ -796,18 +750,16 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         before,
         after,
         timestamp: Date.now(),
-        userId: currentUser.uid,
+        userId: currentUserId,
       });
     }, 200);
-  };
+  }, [currentUserId, groups, shapes, history]);
 
   /**
    * Delete a group and all shapes within it (recursive)
-   * 
-   * @param groupId - The group ID to delete
    */
-  const deleteGroup = async (groupId: string): Promise<void> => {
-    if (!currentUser) return;
+  const deleteGroup = useCallback(async (groupId: string): Promise<void> => {
+    if (!currentUserId) return;
 
     const group = groups.find(g => g.id === groupId);
     if (!group) {
@@ -820,8 +772,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Skip recording if we're in undo/redo
     if (isPerformingHistoryAction.current) {
       await deleteGroupRecursive(GLOBAL_CANVAS_ID, groupId, shapes, groups);
-      // Clear selection if any deleted shapes were selected
-      setSelectedIds(selectedIds.filter(id => !shapeIds.includes(id)));
+      if (selectedIds.some(id => shapeIds.includes(id))) {
+        onClearSelection();
+      }
       return;
     }
 
@@ -838,7 +791,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await deleteGroupRecursive(GLOBAL_CANVAS_ID, groupId, shapes, groups);
 
     // Clear selection if any deleted shapes were selected
-    setSelectedIds(selectedIds.filter(id => !shapeIds.includes(id)));
+    if (selectedIds.some(id => shapeIds.includes(id))) {
+      onClearSelection();
+    }
 
     // Record action
     history.recordAction({
@@ -847,21 +802,18 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       before,
       after: {},
       timestamp: Date.now(),
-      userId: currentUser.uid,
+      userId: currentUserId,
     });
-  };
+  }, [currentUserId, groups, shapes, history, selectedIds, onClearSelection]);
 
   /**
    * Update style for all shapes in a group
-   * 
-   * @param groupId - The group ID
-   * @param styleUpdates - Style updates to apply to all shapes in the group
    */
-  const updateGroupStyle = async (
+  const updateGroupStyle = useCallback(async (
     groupId: string,
     styleUpdates: Partial<Pick<Shape, 'fill' | 'stroke' | 'strokeWidth' | 'opacity'>>
   ): Promise<void> => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
 
     // Get all shape IDs in group (recursive)
     const shapeIds = getGroupShapesRecursive(groupId, shapes, groups);
@@ -902,37 +854,31 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         before,
         after,
         timestamp: Date.now(),
-        userId: currentUser.uid,
+        userId: currentUserId,
       });
     }, 200);
-  };
+  }, [currentUserId, shapes, groups, history]);
 
   /**
    * Update group bounding box after shapes have moved
-   * 
-   * @param groupId - The group ID to update
    */
-  const updateGroupBounds = async (groupId: string): Promise<void> => {
+  const updateGroupBounds = useCallback(async (groupId: string): Promise<void> => {
     await updateGroupBoundsService(GLOBAL_CANVAS_ID, groupId, shapes);
-  };
+  }, [shapes]);
 
   /**
    * Duplicate a group and all its shapes
-   * 
-   * @param groupId - The group ID to duplicate
-   * @returns The ID of the new group
    */
-  const duplicateGroup = async (groupId: string): Promise<string> => {
-    if (!currentUser) {
+  const duplicateGroup = useCallback(async (groupId: string): Promise<string> => {
+    if (!currentUserId) {
       throw new Error('User not authenticated');
     }
 
     // Duplicate the group
-    const newGroupId = await duplicateGroupService(GLOBAL_CANVAS_ID, groupId, currentUser.uid, shapes, groups);
+    const newGroupId = await duplicateGroupService(GLOBAL_CANVAS_ID, groupId, currentUserId, shapes, groups);
 
     // Record action (skip if in undo/redo)
     if (!isPerformingHistoryAction.current) {
-      // Wait for Firestore sync
       setTimeout(() => {
         const newGroup = groups.find(g => g.id === newGroupId);
         if (newGroup) {
@@ -952,33 +898,29 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             before: {},
             after,
             timestamp: Date.now(),
-            userId: currentUser.uid,
+            userId: currentUserId,
           });
         }
       }, 400);
     }
 
     return newGroupId;
-  };
+  }, [currentUserId, shapes, groups, history]);
 
   /**
    * Get all shapes in a group (recursive)
-   * 
-   * @param groupId - The group ID
-   * @returns Array of shapes in the group
    */
-  const getGroupShapes = (groupId: string): Shape[] => {
+  const getGroupShapes = useCallback((groupId: string): Shape[] => {
     const shapeIds = getGroupShapesRecursive(groupId, shapes, groups);
     return shapes.filter(s => shapeIds.includes(s.id));
-  };
+  }, [shapes, groups]);
 
   /**
    * Undo the last action
-   * Restores the previous state of affected shapes
    */
-  const undo = async (): Promise<void> => {
+  const undo = useCallback(async (): Promise<void> => {
     const action = history.undo();
-    if (!action || !currentUser) return;
+    if (!action || !currentUserId) return;
 
     // Set flag to prevent recording this as a new action
     isPerformingHistoryAction.current = true;
@@ -990,7 +932,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const shapesArray = Object.values(action.before).map(s => s as Shape);
         await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsBefore);
       } else {
-        // Individual shape or connection operations
+        // Individual shape operations
         for (const id of action.shapesAffected) {
           const beforeState = action.before[id];
           const afterState = action.after[id];
@@ -998,33 +940,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Check if this is a connection (marked with type: 'connection')
           const isConnection = (afterState as any)?.type === 'connection' || (beforeState as any)?.type === 'connection';
           
-          if (isConnection) {
-            // Handle connection undo
-            if (action.type === 'create') {
-              // Undo create: delete the connection
-              await deleteConnectionService(GLOBAL_CANVAS_ID, id);
-              if (selectedConnectionId === id) {
-                setSelectedConnectionId(null);
-              }
-            } else if (action.type === 'delete') {
-              // Undo delete: recreate the connection
-              if (beforeState) {
-                const connData = beforeState as any;
-                await addConnectionService(GLOBAL_CANVAS_ID, {
-                  id: connData.id,
-                  fromShapeId: connData.fromShapeId,
-                  fromAnchor: connData.fromAnchor,
-                  toShapeId: connData.toShapeId,
-                  toAnchor: connData.toAnchor,
-                  arrowType: connData.arrowType || 'end',
-                  label: connData.label,
-                  stroke: connData.stroke,
-                  strokeWidth: connData.strokeWidth,
-                  createdBy: connData.createdBy || currentUser.uid,
-                });
-              }
-            }
-          } else {
+          if (!isConnection) {
             // Handle shape undo
             if (action.type === 'create') {
               // Undo create: delete the shape
@@ -1049,15 +965,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isPerformingHistoryAction.current = false;
       }, 300);
     }
-  };
+  }, [currentUserId, history, deleteShapeHook, updateShapeHook]);
 
   /**
    * Redo the next action
-   * Restores the next state of affected shapes
    */
-  const redo = async (): Promise<void> => {
+  const redo = useCallback(async (): Promise<void> => {
     const action = history.redo();
-    if (!action || !currentUser) return;
+    if (!action || !currentUserId) return;
 
     // Set flag to prevent recording this as a new action
     isPerformingHistoryAction.current = true;
@@ -1069,7 +984,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const shapesArray = Object.values(action.after).map(s => s as Shape);
         await restoreAllShapesService(GLOBAL_CANVAS_ID, shapesArray, action.groupsAfter);
       } else {
-        // Individual shape or connection operations
+        // Individual shape operations
         for (const id of action.shapesAffected) {
           const beforeState = action.before[id];
           const afterState = action.after[id];
@@ -1077,33 +992,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Check if this is a connection (marked with type: 'connection')
           const isConnection = (afterState as any)?.type === 'connection' || (beforeState as any)?.type === 'connection';
           
-          if (isConnection) {
-            // Handle connection redo
-            if (action.type === 'create') {
-              // Redo create: recreate the connection
-              if (afterState) {
-                const connData = afterState as any;
-                await addConnectionService(GLOBAL_CANVAS_ID, {
-                  id: connData.id,
-                  fromShapeId: connData.fromShapeId,
-                  fromAnchor: connData.fromAnchor,
-                  toShapeId: connData.toShapeId,
-                  toAnchor: connData.toAnchor,
-                  arrowType: connData.arrowType || 'end',
-                  label: connData.label,
-                  stroke: connData.stroke,
-                  strokeWidth: connData.strokeWidth,
-                  createdBy: connData.createdBy || currentUser.uid,
-                });
-              }
-            } else if (action.type === 'delete') {
-              // Redo delete: delete the connection again
-              await deleteConnectionService(GLOBAL_CANVAS_ID, id);
-              if (selectedConnectionId === id) {
-                setSelectedConnectionId(null);
-              }
-            }
-          } else {
+          if (!isConnection) {
             // Handle shape redo
             if (action.type === 'create') {
               // Redo create: recreate the shape
@@ -1128,165 +1017,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isPerformingHistoryAction.current = false;
       }, 300);
     }
-  };
-
-  /**
-   * Add a connection between two shapes
-   * 
-   * @param connectionData - Connection data
-   * @returns Promise resolving to connection ID
-   */
-  const addConnection = async (connectionData: ConnectionCreateData): Promise<string> => {
-    if (!currentUser) throw new Error('Must be logged in to add connections');
-    
-    try {
-      const connectionId = await addConnectionService(GLOBAL_CANVAS_ID, connectionData);
-      
-      // Record connection creation in history
-      if (!isPerformingHistoryAction.current) {
-        history.recordAction({
-          type: 'create',
-          shapesAffected: [connectionId], // Use connection ID as affected "shape"
-          before: {},
-          after: {
-            [connectionId]: {
-              ...connectionData,
-              id: connectionId,
-              type: 'connection' as any, // Mark as connection for history tracking
-            }
-          },
-          timestamp: Date.now(),
-          userId: currentUser.uid,
-        });
-      }
-      
-      return connectionId;
-    } catch (error) {
-      console.error('Error adding connection:', error);
-      throw error;
-    }
-  };
-
-  /**
-   * Update a connection
-   * 
-   * @param id - Connection ID
-   * @param updates - Partial connection updates
-   */
-  const updateConnection = async (id: string, updates: ConnectionUpdateData): Promise<void> => {
-    if (!currentUser) throw new Error('Must be logged in to update connections');
-    
-    // Include lastModifiedBy in the actual Firebase update (not just optimistic)
-    const updatesWithMetadata = {
-      ...updates,
-      lastModifiedBy: currentUser.uid,
-    };
-    
-    // Optimistic update: immediately apply changes locally
-    // IMPORTANT: Keep undefined values - they signal fields to be deleted
-    const optimisticUpdate: any = {
-      ...updatesWithMetadata,
-      lastModifiedAt: Timestamp.now()
-    };
-    
-    setOptimisticConnectionUpdates(prev => {
-      const newMap = new Map(prev);
-      newMap.set(id, optimisticUpdate);
-      return newMap;
-    });
-    
-    try {
-      // Send update with lastModifiedBy to Firebase
-      await updateConnectionService(GLOBAL_CANVAS_ID, id, updatesWithMetadata);
-      
-      // Clear optimistic update after Firebase confirms
-      setOptimisticConnectionUpdates(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(id);
-        return newMap;
-      });
-    } catch (error) {
-      console.error('Error updating connection:', error);
-      // Revert optimistic update on error
-      setOptimisticConnectionUpdates(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(id);
-        return newMap;
-      });
-      throw error;
-    }
-  };
-
-  /**
-   * Delete a connection
-   * 
-   * @param id - Connection ID
-   */
-  const deleteConnection = async (id: string): Promise<void> => {
-    if (!currentUser) throw new Error('Must be logged in to delete connections');
-    
-    try {
-      // Find the connection before deleting for history
-      const connection = connections.find(c => c.id === id);
-      
-      await deleteConnectionService(GLOBAL_CANVAS_ID, id);
-      
-      // Record connection deletion in history
-      if (!isPerformingHistoryAction.current && connection) {
-        history.recordAction({
-          type: 'delete',
-          shapesAffected: [id],
-          before: {
-            [id]: {
-              ...connection,
-              type: 'connection' as any,
-            }
-          },
-          after: {},
-          timestamp: Date.now(),
-          userId: currentUser.uid,
-        });
-      }
-      
-      // Clear selection if this connection was selected
-      if (selectedConnectionId === id) {
-        setSelectedConnectionId(null);
-      }
-    } catch (error) {
-      console.error('Error deleting connection:', error);
-      throw error;
-    }
-  };
-
-  /**
-   * Select a connection
-   * 
-   * @param id - Connection ID (null to deselect)
-   */
-  const selectConnection = (id: string | null): void => {
-    setSelectedConnectionId(id);
-    // Deselect shapes when selecting a connection
-    if (id !== null) {
-      setSelectedIds([]);
-    }
-  };
-
-  /**
-   * Get all connections for a specific shape
-   * 
-   * @param shapeId - Shape ID
-   * @returns Array of connections involving this shape
-   */
-  const getShapeConnections = (shapeId: string): Connection[] => {
-    return getShapeConnectionsService(connections, shapeId);
-  };
+  }, [currentUserId, history, deleteShapeHook, updateShapeHook]);
 
   /**
    * Clear all shapes, groups, and connections from the canvas
-   * Shows confirmation dialog and records as single undo/redo action
    */
-  const clearAll = async (): Promise<void> => {
-    if (!currentUser) return;
+  const clearAll = useCallback(async (): Promise<void> => {
+    if (!currentUserId) return;
 
     // Show confirmation dialog
     const confirmed = window.confirm(
@@ -1296,18 +1033,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!confirmed) return;
 
     // Capture current state before deletion
-    const shapesToDelete = [...shapes]; // Create a copy
-    const groupsToDelete = [...groups]; // Create a copy
+    const shapesToDelete = [...shapes];
+    const groupsToDelete = [...groups];
     const allShapeIds = shapesToDelete.map(s => s.id);
 
     // Skip recording if we're in undo/redo
     if (isPerformingHistoryAction.current) {
-      // Single atomic operation to clear everything
       await clearAllShapesService(GLOBAL_CANVAS_ID);
-      
-      // Clear all selections
-      setSelectedIds([]);
-      setSelectedConnectionId(null);
+      onClearSelection();
       return;
     }
 
@@ -1317,12 +1050,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       before[shape.id] = { ...shape };
     });
 
-    // Single atomic operation to clear everything from Firestore (shapes, groups, and connections)
+    // Single atomic operation to clear everything from Firestore
     await clearAllShapesService(GLOBAL_CANVAS_ID);
 
     // Clear all selections
-    setSelectedIds([]);
-    setSelectedConnectionId(null);
+    onClearSelection();
 
     // Record as single delete action with groups information
     history.recordAction({
@@ -1333,21 +1065,17 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       groupsBefore: groupsToDelete,
       groupsAfter: [],
       timestamp: Date.now(),
-      userId: currentUser.uid,
+      userId: currentUserId,
     });
-  };
+  }, [currentUserId, shapes, groups, history, onClearSelection]);
 
   /**
    * Copy selected shapes to clipboard
-   * 
-   * @param shapeIds - Array of shape IDs to copy
    */
-  const copyShapes = (shapeIds: string[]): void => {
+  const copyShapes = useCallback((shapeIds: string[]): void => {
     if (shapeIds.length === 0) return;
     
-    // Get the shapes to copy
     const shapesToCopy = shapes.filter(s => shapeIds.includes(s.id));
-    
     if (shapesToCopy.length === 0) return;
     
     // Serialize shapes (removes metadata)
@@ -1362,19 +1090,17 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     // Reset paste count when copying new shapes
     resetPasteCount();
-  };
+  }, [shapes, setClipboardData, resetPasteCount]);
 
   /**
    * Cut selected shapes (copy + delete)
-   * 
-   * @param shapeIds - Array of shape IDs to cut
    */
-  const cutShapes = async (shapeIds: string[]): Promise<void> => {
+  const cutShapes = useCallback(async (shapeIds: string[]): Promise<void> => {
     if (shapeIds.length === 0) return;
     
     // Check if any shapes are locked by another user
     const lockedShapes = shapes.filter(
-      s => shapeIds.includes(s.id) && s.isLocked && s.lockedBy !== currentUser?.uid
+      s => shapeIds.includes(s.id) && s.isLocked && s.lockedBy !== currentUserId
     );
     
     if (lockedShapes.length > 0) {
@@ -1387,14 +1113,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     // Then delete the shapes
     await deleteMultipleShapes(shapeIds);
-  };
+  }, [shapes, currentUserId, copyShapes, deleteMultipleShapes]);
 
   /**
    * Paste shapes from clipboard
-   * Creates new shapes at viewport center with incremental offset
    */
-  const pasteShapes = async (): Promise<void> => {
-    if (!clipboardData || !isClipboardDataValid(clipboardData) || !currentUser) {
+  const pasteShapes = useCallback(async (stageRef: React.RefObject<Konva.Stage | null>): Promise<void> => {
+    if (!clipboardData || !isClipboardDataValid(clipboardData) || !currentUserId) {
       return;
     }
     
@@ -1409,9 +1134,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const stageHeight = stage.height();
     const stageX = stage.x();
     const stageY = stage.y();
-    const scale = stage.scaleX(); // Assume uniform scale
+    const scale = stage.scaleX();
     
-    // Transform viewport center to canvas coordinates
     const viewportCenterCanvasX = (-stageX + stageWidth / 2) / scale;
     const viewportCenterCanvasY = (-stageY + stageHeight / 2) / scale;
     
@@ -1433,8 +1157,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const originalCenterX = (minX + maxX) / 2;
     const originalCenterY = (minY + maxY) / 2;
     
-    // Calculate offset to move shapes from original center to viewport center
-    // Plus incremental offset for multiple pastes
+    // Calculate offset
     const incrementalOffset = calculatePasteOffset(clipboardData.pasteCount);
     const offsetX = viewportCenterCanvasX - originalCenterX + incrementalOffset.x;
     const offsetY = viewportCenterCanvasY - originalCenterY + incrementalOffset.y;
@@ -1451,7 +1174,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const newShape: ShapeCreateData = {
         ...shapeData,
         id: newId,
-        createdBy: currentUser.uid,
+        createdBy: currentUserId,
       };
       
       await createShapeService(GLOBAL_CANVAS_ID, newShape);
@@ -1463,12 +1186,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     // Select the newly pasted shapes
     setTimeout(() => {
-      selectMultipleShapes(newShapeIds);
+      onSelectMultiple(newShapeIds);
     }, 100);
     
-    // Record the creation in history (skip if in undo/redo)
+    // Record the creation in history
     if (!isPerformingHistoryAction.current) {
-      // Wait for Firestore to sync
       setTimeout(() => {
         const createdShapes = shapes.filter(s => newShapeIds.includes(s.id));
         if (createdShapes.length > 0) {
@@ -1483,20 +1205,22 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             before: {},
             after,
             timestamp: Date.now(),
-            userId: currentUser.uid,
+            userId: currentUserId,
           });
         }
       }, 200);
     }
-  };
+  }, [clipboardData, currentUserId, shapes, incrementPasteCount, onSelectMultiple, history]);
 
   /**
    * Export canvas as PNG or SVG
-   * 
-   * @param format - Export format (png or svg)
-   * @param exportType - Type of export (fullCanvas, visibleArea, selection)
    */
-  const exportCanvas = (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection'): void => {
+  const exportCanvas = useCallback((
+    format: 'png' | 'svg',
+    exportType: 'fullCanvas' | 'visibleArea' | 'selection',
+    stageRef: React.RefObject<Konva.Stage | null>,
+    selectedIds: string[]
+  ): void => {
     const stage = stageRef?.current;
     
     if (!stage) {
@@ -1520,49 +1244,37 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (error) {
       console.error('Export error:', error);
     }
-  };
-
-  /**
-   * Toggle grid snapping on/off
-   */
-  const toggleGrid = (): void => {
-    setGridEnabled(prev => {
-      const newValue = !prev;
-      localStorage.setItem('collabcanvas-grid-enabled', String(newValue));
-      return newValue;
-    });
-  };
+  }, []);
 
   /**
    * Select all shapes of a specific type
    */
-  const selectShapesByType = (shapeType: string): void => {
+  const selectShapesByType = useCallback((shapeType: string, onSelect: (ids: string[]) => void): void => {
     const shapeIds = shapes
       .filter(shape => shape.type === shapeType)
       .map(shape => shape.id);
-    selectMultipleShapes(shapeIds);
-  };
+    onSelect(shapeIds);
+  }, [shapes]);
 
   /**
    * Select all shapes within a lasso polygon
    */
-  const selectShapesInLasso = (lassoPolygon: Array<{ x: number; y: number }>): void => {
+  const selectShapesInLasso = useCallback((lassoPolygon: Array<{ x: number; y: number }>, onSelect: (ids: string[]) => void): void => {
     // Dynamically import selection utilities to avoid circular dependencies
-    import('../utils/selection').then(({ getShapesInLasso }) => {
+    import('../../../utils/selection').then(({ getShapesInLasso }) => {
       const shapeIds = getShapesInLasso(shapes, lassoPolygon);
-      selectMultipleShapes(shapeIds);
+      onSelect(shapeIds);
     });
-  };
+  }, [shapes]);
 
   /**
    * Create a component from selected shapes
    */
-  const createComponent = async (name: string, description?: string): Promise<string> => {
-    if (!currentUser || selectedIds.length === 0) {
+  const createComponent = useCallback(async (name: string, selectedIds: string[], description?: string): Promise<string> => {
+    if (!currentUserId || selectedIds.length === 0) {
       throw new Error('No shapes selected or user not authenticated');
     }
 
-    // Get selected shapes
     const selectedShapes = shapes.filter(s => selectedIds.includes(s.id));
     if (selectedShapes.length === 0) {
       throw new Error('Selected shapes not found');
@@ -1603,36 +1315,41 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       shapes: serializedShapes as any,
       width,
       height,
-      createdBy: currentUser.uid,
+      createdBy: currentUserId,
       canvasId: GLOBAL_CANVAS_ID,
     });
 
     return componentId;
-  };
+  }, [currentUserId, shapes]);
 
   /**
    * Delete a component
    */
-  const deleteComponent = async (componentId: string): Promise<void> => {
+  const deleteComponent = useCallback(async (componentId: string): Promise<void> => {
     await deleteComponentService(componentId);
-  };
+  }, []);
 
   /**
    * Update a component
    */
-  const updateComponent = async (componentId: string, updates: ComponentUpdateData): Promise<void> => {
-    if (!currentUser) return;
+  const updateComponent = useCallback(async (componentId: string, updates: ComponentUpdateData): Promise<void> => {
+    if (!currentUserId) return;
     await updateComponentService(componentId, {
       ...updates,
-      lastModifiedBy: currentUser.uid,
+      lastModifiedBy: currentUserId,
     });
-  };
+  }, [currentUserId]);
 
   /**
    * Insert a component instance at viewport center
    */
-  const insertComponent = async (componentId: string, position?: { x: number; y: number }): Promise<void> => {
-    if (!currentUser) return;
+  const insertComponent = useCallback(async (
+    componentId: string,
+    stageRef: React.RefObject<Konva.Stage | null>,
+    onSelect: (ids: string[]) => void,
+    position?: { x: number; y: number }
+  ): Promise<void> => {
+    if (!currentUserId) return;
 
     const component = components.find(c => c.id === componentId);
     if (!component) {
@@ -1656,13 +1373,11 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const stageHeight = stage.height();
       const stageX = stage.x();
       const stageY = stage.y();
-      const scale = stage.scaleX(); // Assume uniform scale
+      const scale = stage.scaleX();
 
-      // Transform viewport center to canvas coordinates
       const viewportCenterCanvasX = (-stageX + stageWidth / 2) / scale;
       const viewportCenterCanvasY = (-stageY + stageHeight / 2) / scale;
 
-      // Center the component at viewport center (accounting for component dimensions)
       insertX = viewportCenterCanvasX - component.width / 2;
       insertY = viewportCenterCanvasY - component.height / 2;
     }
@@ -1677,7 +1392,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         id: newId,
         x: insertX + shapeTemplate.x,
         y: insertY + shapeTemplate.y,
-        createdBy: currentUser.uid,
+        createdBy: currentUserId,
       };
 
       await createShapeService(GLOBAL_CANVAS_ID, newShape);
@@ -1686,15 +1401,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Select the newly created shapes
     setTimeout(() => {
-      selectMultipleShapes(newShapeIds);
+      onSelect(newShapeIds);
     }, 100);
-  };
+  }, [currentUserId, components]);
 
   /**
    * Create a comment on a shape
    */
-  const createComment = async (text: string, shapeId: string, position?: { x: number; y: number }, parentId?: string): Promise<string> => {
-    if (!currentUser) {
+  const createComment = useCallback(async (
+    text: string,
+    shapeId: string,
+    position?: { x: number; y: number },
+    parentId?: string
+  ): Promise<string> => {
+    if (!currentUserId) {
       throw new Error('User not authenticated');
     }
 
@@ -1702,147 +1422,116 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       text,
       shapeId,
       canvasId: GLOBAL_CANVAS_ID,
-      createdBy: currentUser.uid,
-      createdByName: currentUser.displayName || currentUser.email || 'Anonymous',
+      createdBy: currentUserId,
+      createdByName: 'User', // This should come from auth context
       x: position?.x,
       y: position?.y,
       parentId,
     });
 
     return commentId;
-  };
+  }, [currentUserId]);
 
   /**
    * Update a comment
    */
-  const updateComment = async (commentId: string, updates: CommentUpdateData): Promise<void> => {
+  const updateComment = useCallback(async (commentId: string, updates: CommentUpdateData): Promise<void> => {
     await updateCommentService(commentId, updates);
-  };
+  }, []);
 
   /**
    * Delete a comment
    */
-  const deleteComment = async (commentId: string): Promise<void> => {
+  const deleteComment = useCallback(async (commentId: string): Promise<void> => {
     await deleteCommentService(commentId);
-  };
+  }, []);
 
   /**
    * Resolve a comment
    */
-  const resolveComment = async (commentId: string): Promise<void> => {
-    if (!currentUser) return;
-    await resolveCommentService(commentId, currentUser.uid);
-  };
+  const resolveComment = useCallback(async (commentId: string): Promise<void> => {
+    if (!currentUserId) return;
+    await resolveCommentService(commentId, currentUserId);
+  }, [currentUserId]);
 
   /**
    * Unresolve a comment
    */
-  const unresolveComment = async (commentId: string): Promise<void> => {
+  const unresolveComment = useCallback(async (commentId: string): Promise<void> => {
     await unresolveCommentService(commentId);
-  };
+  }, []);
 
   /**
    * Get all comments for a specific shape
    */
-  const getShapeComments = (shapeId: string): Comment[] => {
+  const getShapeComments = useCallback((shapeId: string): Comment[] => {
     return comments.filter(comment => comment.shapeId === shapeId);
-  };
+  }, [comments]);
 
   /**
    * Get total comment count for a shape (including resolved)
    */
-  const getShapeCommentCount = (shapeId: string): number => {
+  const getShapeCommentCount = useCallback((shapeId: string): number => {
     return comments.filter(comment => comment.shapeId === shapeId).length;
-  };
+  }, [comments]);
 
   /**
    * Get unresolved comment count for a shape
    */
-  const getShapeUnresolvedCommentCount = (shapeId: string): number => {
+  const getShapeUnresolvedCommentCount = useCallback((shapeId: string): number => {
     return comments.filter(comment => comment.shapeId === shapeId && !comment.resolved).length;
-  };
+  }, [comments]);
 
-  const value: CanvasContextType = {
+  return {
     shapes,
     groups,
-    connections,
-    selectedId,
-    selectedIds,
-    selectedConnectionId,
+    components,
+    comments,
     loading,
-    stageRef,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+    hasClipboardData: isClipboardDataValid(clipboardData),
     addShape,
     updateShape,
     deleteShape,
     deleteMultipleShapes,
-    selectShape,
-    selectMultipleShapes,
-    isSelected,
+    duplicateShape,
+    moveShapesByArrowKey,
+    saveArrowKeyMovementToHistory,
     lockShape,
     unlockShape,
-    duplicateShape,
     bringForward,
     sendBack,
     alignShapes,
     distributeShapes,
     groupShapes,
     ungroupShapes,
-    moveShapesByArrowKey,
-    saveArrowKeyMovementToHistory,
     deleteGroup,
     updateGroupStyle,
     updateGroupBounds,
     duplicateGroup,
     getGroupShapes,
-    addConnection,
-    updateConnection,
-    deleteConnection,
-    selectConnection,
-    getShapeConnections,
     undo,
     redo,
-    canUndo: history.canUndo,
-    canRedo: history.canRedo,
     clearAll,
     copyShapes,
     cutShapes,
     pasteShapes,
-    hasClipboardData: isClipboardDataValid(clipboardData),
     exportCanvas,
-    gridEnabled,
-    toggleGrid,
     selectShapesByType,
     selectShapesInLasso,
     createComponent,
     deleteComponent,
     updateComponent,
     insertComponent,
-    components,
     createComment,
     updateComment,
     deleteComment,
     resolveComment,
     unresolveComment,
-    comments,
     getShapeComments,
     getShapeCommentCount,
     getShapeUnresolvedCommentCount,
   };
-
-  return <CanvasContext.Provider value={value}>{children}</CanvasContext.Provider>;
-};
-
-/**
- * Hook to use the Canvas context
- * Throws an error if used outside of CanvasProvider
- * 
- * @returns CanvasContextType
- */
-export const useCanvasContext = (): CanvasContextType => {
-  const context = useContext(CanvasContext);
-  if (context === undefined) {
-    throw new Error('useCanvasContext must be used within a CanvasProvider');
-  }
-  return context;
 };
 

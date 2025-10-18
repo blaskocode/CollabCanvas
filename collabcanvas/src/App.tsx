@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import { CanvasProvider } from './contexts/CanvasContext';
+import { CanvasProvider } from './contexts/canvas';
 import { HistoryProvider } from './contexts/HistoryContext';
 import { ClipboardProvider } from './contexts/ClipboardContext';
 import { useAuth } from './hooks/useAuth';

@@ -59,7 +59,6 @@ export interface MouseEventsActions {
 export type UseMouseEventsReturn = MouseEventsState & MouseEventsActions;
 
 export interface UseMouseEventsProps {
-  stageRef: React.RefObject<Konva.Stage>;
   shapes: any[];
   defaultWorkflowShapeSizes: Record<string, { width: number; height: number }>;
   addShape: (type: ShapeType, position: { x: number; y: number }, props?: any) => Promise<string>;
@@ -73,7 +72,6 @@ export interface UseMouseEventsProps {
  * Manages box selection, lasso selection, drawing mode, placement mode, and Space-key panning
  */
 export const useMouseEvents = ({
-  stageRef,
   shapes,
   defaultWorkflowShapeSizes,
   addShape,

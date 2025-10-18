@@ -8,7 +8,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { useCanvas } from '../../hooks/useCanvas';
 import { useSelectionState } from './state/useSelectionState';
 import { useSnappingState } from './state/useSnappingState';
-import { useEditingState } from './state/useEditingState';
 import { useViewportState } from './state/useViewportState';
 import { useConnectionsState } from './state/useConnectionsState';
 import { useShapesState } from './state/useShapesState';

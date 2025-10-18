@@ -103,10 +103,10 @@ export interface ShapesActions {
   // Clipboard
   copyShapes: (shapeIds: string[]) => void;
   cutShapes: (shapeIds: string[]) => Promise<void>;
-  pasteShapes: (stageRef: React.RefObject<Konva.Stage>) => Promise<void>;
+  pasteShapes: (stageRef: React.RefObject<Konva.Stage | null>) => Promise<void>;
   
   // Export
-  exportCanvas: (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection', stageRef: React.RefObject<Konva.Stage>, selectedIds: string[]) => void;
+  exportCanvas: (format: 'png' | 'svg', exportType: 'fullCanvas' | 'visibleArea' | 'selection', stageRef: React.RefObject<Konva.Stage | null>, selectedIds: string[]) => void;
   
   // Selection utilities
   selectShapesByType: (shapeType: string, onSelect: (ids: string[]) => void) => void;
@@ -116,7 +116,7 @@ export interface ShapesActions {
   createComponent: (name: string, selectedIds: string[], description?: string) => Promise<string>;
   deleteComponent: (componentId: string) => Promise<void>;
   updateComponent: (componentId: string, updates: ComponentUpdateData) => Promise<void>;
-  insertComponent: (componentId: string, stageRef: React.RefObject<Konva.Stage>, onSelect: (ids: string[]) => void, position?: { x: number; y: number }) => Promise<void>;
+  insertComponent: (componentId: string, stageRef: React.RefObject<Konva.Stage | null>, onSelect: (ids: string[]) => void, position?: { x: number; y: number }) => Promise<void>;
   
   // Comments
   createComment: (text: string, shapeId: string, position?: { x: number; y: number }, parentId?: string) => Promise<string>;
@@ -1118,7 +1118,7 @@ export const useShapesState = ({
   /**
    * Paste shapes from clipboard
    */
-  const pasteShapes = useCallback(async (stageRef: React.RefObject<Konva.Stage>): Promise<void> => {
+  const pasteShapes = useCallback(async (stageRef: React.RefObject<Konva.Stage | null>): Promise<void> => {
     if (!clipboardData || !isClipboardDataValid(clipboardData) || !currentUserId) {
       return;
     }
@@ -1218,7 +1218,7 @@ export const useShapesState = ({
   const exportCanvas = useCallback((
     format: 'png' | 'svg',
     exportType: 'fullCanvas' | 'visibleArea' | 'selection',
-    stageRef: React.RefObject<Konva.Stage>,
+    stageRef: React.RefObject<Konva.Stage | null>,
     selectedIds: string[]
   ): void => {
     const stage = stageRef?.current;
@@ -1345,7 +1345,7 @@ export const useShapesState = ({
    */
   const insertComponent = useCallback(async (
     componentId: string,
-    stageRef: React.RefObject<Konva.Stage>,
+    stageRef: React.RefObject<Konva.Stage | null>,
     onSelect: (ids: string[]) => void,
     position?: { x: number; y: number }
   ): Promise<void> => {

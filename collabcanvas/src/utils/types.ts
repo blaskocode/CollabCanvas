@@ -289,6 +289,10 @@ export interface CanvasContextType {
   selectedConnectionId: string | null; // Selected connection
   loading: boolean;
   stageRef: React.RefObject<any> | null;
+  stagePos: { x: number; y: number };
+  stageScale: number;
+  setStagePos: (pos: { x: number; y: number }) => void;
+  setStageScale: (scale: number) => void;
   addShape: (type: ShapeType, position: { x: number; y: number }, customProperties?: Partial<ShapeCreateData>) => Promise<string>;
   updateShape: (id: string, updates: ShapeUpdateData) => Promise<void>;
   deleteShape: (id: string) => Promise<void>;

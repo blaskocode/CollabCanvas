@@ -7,7 +7,7 @@ import { useCanvasContext } from '../../contexts/canvas';
 import { useAuth } from '../../hooks/useAuth';
 import { useCursors } from '../../hooks/useCursors';
 import { useToast } from '../../hooks/useToast';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN, GLOBAL_CANVAS_ID } from '../../utils/constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_ZOOM, MAX_ZOOM, AUTO_PAN_EDGE_THRESHOLD, AUTO_PAN_SPEED_MAX, AUTO_PAN_SPEED_MIN, GLOBAL_CANVAS_ID } from '../../utils/constants';
 import CanvasControls from './CanvasControls';
 import ComponentLibrary from './ComponentLibrary';
 import CommentsPanel from './CommentsPanel';
@@ -46,7 +46,7 @@ import GridOverlay from './GridOverlay';
 import SmartGuides from './SmartGuides';
 import CommentBadge from './CommentBadge';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import type { Shape as ShapeType, Connection } from '../../utils/types';
+import type { Shape as ShapeType, Connection, ShapeType as ShapeTypeString } from '../../utils/types';
 import { supportsAnchors } from '../../utils/anchor-snapping';
 import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../utils/snapping';
 import { useWheelZoom } from './events/useWheelZoom';
@@ -60,7 +60,7 @@ import { useMouseEvents } from './events/useMouseEvents';
  */
 const Canvas: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, moveShapesByArrowKey, saveArrowKeyMovementToHistory, addConnection, updateConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType, getShapeCommentCount, getShapeUnresolvedCommentCount } = useCanvasContext();
+  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, stagePos, stageScale, setStagePos, setStageScale, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, moveShapesByArrowKey, saveArrowKeyMovementToHistory, addConnection, updateConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType, getShapeCommentCount, getShapeUnresolvedCommentCount } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
@@ -86,7 +86,6 @@ const Canvas: React.FC = () => {
   // Refs for selection and panning
   const justCompletedBoxSelect = useRef(false);
   const justCompletedLassoSelect = useRef(false);
-  const panStartRef = useRef<{ x: number; y: number; stageX: number; stageY: number } | null>(null);
   const isDraggingShapeRef = useRef(false); // Track shape drag to prevent pan conflicts
   
   // Arrow key movement state (for batched history)
@@ -107,12 +106,30 @@ const Canvas: React.FC = () => {
     height: window.innerHeight - 64, // Subtract navbar height (64px)
   });
 
-  // Stage position and scale for pan/zoom
-  const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
-  const [stageScale, setStageScale] = useState(1);
+  // Default sizes for workflow shapes
+  const defaultWorkflowShapeSizes: Record<string, { width: number; height: number }> = {
+    processBox: { width: 120, height: 80 },
+    decisionDiamond: { width: 100, height: 100 },
+    startEndOval: { width: 120, height: 60 },
+    documentShape: { width: 120, height: 80 },
+    databaseShape: { width: 100, height: 80 },
+    triangle: { width: 100, height: 100 },
+    rightTriangle: { width: 100, height: 100 },
+    hexagon: { width: 120, height: 100 },
+    octagon: { width: 100, height: 100 },
+    ellipse: { width: 120, height: 80 },
+    button: { width: 100, height: 40 },
+    textInput: { width: 200, height: 40 },
+    textarea: { width: 200, height: 100 },
+    dropdown: { width: 150, height: 40 },
+    checkbox: { width: 20, height: 20 },
+    radio: { width: 20, height: 20 },
+    toggle: { width: 50, height: 28 },
+    slider: { width: 200, height: 40 },
+  };
 
   // Wheel zoom hook for viewport zoom
-  const { handleWheel, handleZoomIn, handleZoomOut, handleZoomReset } = useWheelZoom({
+  const { handleWheel, handleZoomIn, handleZoomOut } = useWheelZoom({
     stageRef,
     setStagePos,
     setStageScale,
@@ -150,7 +167,6 @@ const Canvas: React.FC = () => {
   // Mouse events hook for selection, drawing, and panning
   const {
     // Selection state
-    isBoxSelecting,
     boxSelect,
     isLassoDrawing,
     lassoPath,
@@ -201,25 +217,6 @@ const Canvas: React.FC = () => {
   // Transformer refs for resize/rotate functionality
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Node | null>(null);
-  
-  // Default sizes for workflow shapes and form elements (width x height)
-  const defaultWorkflowShapeSizes: Record<string, { width: number; height: number }> = {
-    // Workflow shapes
-    process: { width: 160, height: 80 },
-    decision: { width: 120, height: 120 },
-    startEnd: { width: 140, height: 70 },
-    document: { width: 140, height: 100 },
-    database: { width: 120, height: 80 },
-    // Form elements (fixed sizes, click to place)
-    button: { width: 120, height: 40 },
-    textInput: { width: 200, height: 36 },
-    textarea: { width: 200, height: 100 },
-    dropdown: { width: 200, height: 36 },
-    checkbox: { width: 20, height: 20 },
-    radio: { width: 20, height: 20 },
-    toggle: { width: 48, height: 24 },
-    slider: { width: 200, height: 24 },
-  };
 
   /**
    * Center the canvas in the viewport at minimum zoom
@@ -246,7 +243,7 @@ const Canvas: React.FC = () => {
       setDimensions(newDimensions);
 
       // If current zoom is below minimum, adjust it
-      setStageScale(prevScale => Math.max(prevScale, MIN_ZOOM));
+      setStageScale(Math.max(stageScale, MIN_ZOOM));
     };
 
     // Set initial dimensions
@@ -338,7 +335,6 @@ const Canvas: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         setIsSpacePressed(false);
-        setIsPanning(false);
       }
     };
     
@@ -386,14 +382,11 @@ const Canvas: React.FC = () => {
           exitDrawingMode();
         } else if (isPlacementMode) {
           exitPlacementMode();
-        } else if (isLassoDrawing) {
-          // Cancel active lasso
-          setIsLassoDrawing(false);
-          setLassoPath([]);
         } else if (selectedIds.length > 0) {
           selectShape(null);
           lastSelectedGroupRef.current = null; // Reset two-click selection
         }
+        // Note: Lasso drawing cancel removed - now handled by switching selection modes or completing lasso
         return;
       }
 
@@ -543,8 +536,9 @@ const Canvas: React.FC = () => {
       // L: Toggle between box and lasso selection modes
       if (e.key === 'l' || e.key === 'L') {
         e.preventDefault();
-        setSelectionMode(prev => prev === 'box' ? 'lasso' : 'box');
-        toast.success(selectionMode === 'box' ? 'Lasso selection mode' : 'Box selection mode');
+        const newMode = selectionMode === 'box' ? 'lasso' : 'box';
+        setSelectionMode(newMode);
+        toast.success(newMode === 'lasso' ? 'Lasso selection mode' : 'Box selection mode');
         return;
       }
 
@@ -1317,10 +1311,6 @@ const Canvas: React.FC = () => {
     // Clear alignment guides
     setAlignmentGuides([]);
     
-    // Clear any pan state to prevent accidental panning
-    setIsPanning(false);
-    panStartRef.current = null;
-    
     const groupDrag = groupDragRef.current;
     const multiSelectDrag = multiSelectDragRef.current;
     
@@ -1441,10 +1431,6 @@ const Canvas: React.FC = () => {
    * Handle Clear All - wraps context clearAll and clears local lasso state
    */
   const handleClearAll = async () => {
-    // Clear lasso drawing state
-    setIsLassoDrawing(false);
-    setLassoPath([]);
-    
     // Call the context clearAll which will clear shapes, groups, connections, and selections
     await clearAll();
   };
@@ -1660,22 +1646,19 @@ const Canvas: React.FC = () => {
   /**
    * Handle add shape button click - enter drawing or placement mode
    */
-  const handleAddShape = (type: ShapeType['type']) => {
+  const handleAddShape = (type: ShapeTypeString) => {
     // Workflow shapes and form elements use placement mode (click-to-place with fixed sizes)
     const placementModeTypes = [
-      'process', 'decision', 'startEnd', 'document', 'database', // Workflow shapes
+      'processBox', 'decisionDiamond', 'startEndOval', 'documentShape', 'databaseShape', // Workflow shapes
       'button', 'textInput', 'textarea', 'dropdown', 'checkbox', 'radio', 'toggle', 'slider' // Form elements
     ];
     
     if (placementModeTypes.includes(type)) {
       // Use placement mode for workflow shapes and form elements (click-to-place)
-      setIsPlacementMode(true);
-      setPlacementShapeType(type);
-      setPlacementPreview(null); // Will be set on mouse move
+      enterPlacementMode(type);
     } else {
       // Use drawing mode for basic shapes (drag-to-draw)
-      setIsDrawingMode(true);
-      setDrawingShapeType(type);
+      enterDrawingMode(type);
     }
   };
 
@@ -3078,7 +3061,7 @@ const Canvas: React.FC = () => {
         gridEnabled={gridEnabled}
         onToggleGrid={toggleGrid}
         selectionMode={selectionMode}
-        onToggleSelectionMode={() => setSelectionMode(prev => prev === 'box' ? 'lasso' : 'box')}
+        onToggleSelectionMode={() => setSelectionMode(selectionMode === 'box' ? 'lasso' : 'box')}
         showComponentLibrary={showComponentLibrary}
         onToggleComponentLibrary={() => {
           // Mutually exclusive panels

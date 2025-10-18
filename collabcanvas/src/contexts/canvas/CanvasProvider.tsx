@@ -70,6 +70,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     // Viewport
     stageRef: viewportState.stageRef,
+    stagePos: viewportState.stagePos,
+    stageScale: viewportState.stageScale,
+    setStagePos: viewportState.setStagePos,
+    setStageScale: viewportState.setStageScale,
     
     // Shape CRUD
     addShape: shapesState.addShape,

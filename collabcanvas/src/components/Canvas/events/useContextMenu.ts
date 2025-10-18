@@ -19,7 +19,7 @@ export interface UseContextMenuReturn {
 }
 
 export interface UseContextMenuProps {
-  stageRef: React.RefObject<Konva.Stage>;
+  stageRef: React.RefObject<Konva.Stage | null> | null;
 }
 
 /**

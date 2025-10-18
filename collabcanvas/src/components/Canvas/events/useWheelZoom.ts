@@ -9,7 +9,7 @@ import type Konva from 'konva';
 import { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from '../../../utils/constants';
 
 export interface UseWheelZoomProps {
-  stageRef: React.RefObject<Konva.Stage>;
+  stageRef: React.RefObject<Konva.Stage | null> | null;
   setStagePos: (pos: { x: number; y: number }) => void;
   setStageScale: (scale: number) => void;
   dimensions: { width: number; height: number };

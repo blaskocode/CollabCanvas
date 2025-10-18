@@ -49,6 +49,8 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Shape as ShapeType, Connection } from '../../utils/types';
 import { supportsAnchors } from '../../utils/anchor-snapping';
 import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../utils/snapping';
+import { useWheelZoom } from './events/useWheelZoom';
+import { useContextMenu as useContextMenuHook } from './events/useContextMenu';
 
 /**
  * Canvas Component
@@ -121,6 +123,14 @@ const Canvas: React.FC = () => {
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
 
+  // Wheel zoom hook for viewport zoom
+  const { handleWheel, handleZoomIn, handleZoomOut, handleZoomReset } = useWheelZoom({
+    stageRef,
+    setStagePos,
+    setStageScale,
+    dimensions,
+  });
+
   // Auto-pan state for shape dragging near viewport edges
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const autoPanFrameId = useRef<number | null>(null);
@@ -134,8 +144,20 @@ const Canvas: React.FC = () => {
   // Store Konva node references for real-time drag updates
   const shapeNodesRef = useRef<Map<string, any>>(new Map());
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; shapeId: string } | null>(null);
+  // Context menu hook
+  const { contextMenu, handleShapeContextMenu: handleShapeContextMenuBase, closeContextMenu } = useContextMenuHook({
+    stageRef,
+  });
+
+  // Wrap context menu handler to include shape selection
+  const handleShapeContextMenu = useCallback((e: any, shapeId: string) => {
+    // Select the shape if not already selected
+    if (!selectedIds.includes(shapeId)) {
+      selectShape(shapeId);
+    }
+    // Show context menu
+    handleShapeContextMenuBase(e, shapeId);
+  }, [selectedIds, selectShape, handleShapeContextMenuBase]);
 
   // Drawing mode state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -1772,110 +1794,6 @@ const Canvas: React.FC = () => {
   };
 
   /**
-   * Handle mouse wheel for zoom functionality
-   * Zooms toward cursor position
-   */
-  const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-
-    const stage = e.target.getStage();
-    if (!stage) return;
-
-    const oldScale = stage.scaleX();
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-
-    // Calculate zoom direction and amount
-    const scaleBy = 1.05;
-    const direction = e.evt.deltaY > 0 ? -1 : 1;
-
-    // Calculate new scale
-    let newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
-
-    // Constrain zoom to min/max
-    if (newScale < MIN_ZOOM) newScale = MIN_ZOOM;
-    if (newScale > MAX_ZOOM) newScale = MAX_ZOOM;
-
-    setStageScale(newScale);
-
-    // Calculate new position to zoom toward cursor
-    const mousePointTo = {
-      x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale,
-    };
-
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
-
-    setStagePos(newPos);
-  };
-
-  /**
-   * Handle zoom in button click
-   */
-  const handleZoomIn = () => {
-    const stage = stageRef?.current;
-    if (!stage) return;
-    
-    const oldScale = stage.scaleX();
-    let newScale = oldScale + ZOOM_STEP;
-    if (newScale > MAX_ZOOM) newScale = MAX_ZOOM;
-
-    // Zoom toward center of viewport
-    const center = {
-      x: dimensions.width / 2,
-      y: dimensions.height / 2,
-    };
-
-    const mousePointTo = {
-      x: (center.x - stage.x()) / oldScale,
-      y: (center.y - stage.y()) / oldScale,
-    };
-
-    const newPos = {
-      x: center.x - mousePointTo.x * newScale,
-      y: center.y - mousePointTo.y * newScale,
-    };
-
-    setStageScale(newScale);
-    setStagePos(newPos);
-  };
-
-  /**
-   * Handle zoom out button click
-   */
-  const handleZoomOut = () => {
-    const stage = stageRef?.current;
-    if (!stage) return;
-    
-    const oldScale = stage.scaleX();
-    let newScale = oldScale - ZOOM_STEP;
-    if (newScale < MIN_ZOOM) newScale = MIN_ZOOM;
-
-    setStageScale(newScale);
-
-    // Zoom toward center of viewport
-    const center = {
-      x: dimensions.width / 2,
-      y: dimensions.height / 2,
-    };
-
-    const mousePointTo = {
-      x: (center.x - stage.x()) / oldScale,
-      y: (center.y - stage.y()) / oldScale,
-    };
-
-    const newPos = {
-      x: center.x - mousePointTo.x * newScale,
-      y: center.y - mousePointTo.y * newScale,
-    };
-
-    setStagePos(newPos);
-  };
-
-  /**
    * Reset view to minimum zoom with canvas centered
    */
   /**
@@ -2043,27 +1961,6 @@ const Canvas: React.FC = () => {
   /**
    * Handle right-click on shape
    */
-  const handleShapeContextMenu = useCallback((e: any, shapeId: string) => {
-    e.evt.preventDefault();
-    const stage = stageRef?.current;
-    if (!stage) return;
-
-    // Get screen position of the click
-    const pointerPos = stage.getPointerPosition();
-    if (!pointerPos) return;
-
-    // Select the shape if not already selected
-    if (!selectedIds.includes(shapeId)) {
-      selectShape(shapeId);
-    }
-
-    // Show context menu at cursor position
-    setContextMenu({
-      x: pointerPos.x,
-      y: pointerPos.y,
-      shapeId,
-    });
-  }, [selectedIds, selectShape, stageRef]);
 
   /**
    * Render shape based on type
@@ -3508,7 +3405,7 @@ const Canvas: React.FC = () => {
           <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
-            onClose={() => setContextMenu(null)}
+            onClose={closeContextMenu}
             onBringForward={() => bringForward(contextMenu.shapeId)}
             onSendBackward={() => sendBack(contextMenu.shapeId)}
             onBringToFront={() => handleBringToFront(contextMenu.shapeId)}

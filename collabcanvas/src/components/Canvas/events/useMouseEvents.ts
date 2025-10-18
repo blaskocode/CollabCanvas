@@ -5,7 +5,6 @@
 
 import { useState, useRef, useCallback } from 'react';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import type Konva from 'konva';
 import type { ShapeType } from '../../../utils/types';
 
 export interface MouseEventsState {

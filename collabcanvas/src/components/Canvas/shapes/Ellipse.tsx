@@ -31,6 +31,7 @@ interface EllipseProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -73,6 +74,7 @@ const Ellipse: React.FC<EllipseProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -161,6 +163,7 @@ const Ellipse: React.FC<EllipseProps> = ({
         scaleX={scaleX}
         scaleY={scaleY}
         draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
         onClick={handleClick}
       onDblClick={handleDblClick}
         onTap={handleTap}

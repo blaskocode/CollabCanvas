@@ -146,7 +146,42 @@ export function findAlignmentGuides(
     )
   );
   
-  return uniqueGuides;
+  /**
+   * Calculate distance from guide to the moving shape's relevant edge
+   * This prioritizes snaps by distance (closest snap wins)
+   */
+  const getGuideDistance = (guide: AlignmentGuide): number => {
+    if (guide.type === 'vertical') {
+      // Distance from guide to shape's relevant edge
+      if (guide.alignmentType === 'left') {
+        return Math.abs(guide.position - movingLeft);
+      } else if (guide.alignmentType === 'centerX') {
+        return Math.abs(guide.position - movingCenterX);
+      } else if (guide.alignmentType === 'right') {
+        return Math.abs(guide.position - movingRight);
+      }
+    } else if (guide.type === 'horizontal') {
+      // Distance from guide to shape's relevant edge
+      if (guide.alignmentType === 'top') {
+        return Math.abs(guide.position - movingTop);
+      } else if (guide.alignmentType === 'centerY') {
+        return Math.abs(guide.position - movingCenterY);
+      } else if (guide.alignmentType === 'bottom') {
+        return Math.abs(guide.position - movingBottom);
+      }
+    }
+    return Infinity; // Fallback for invalid alignmentType
+  };
+  
+  // Sort guides by distance (closest first)
+  // This ensures edge-to-edge touching has same priority as edge alignment
+  const sortedGuides = uniqueGuides.sort((a, b) => {
+    const distA = getGuideDistance(a);
+    const distB = getGuideDistance(b);
+    return distA - distB;
+  });
+  
+  return sortedGuides;
 }
 
 /**

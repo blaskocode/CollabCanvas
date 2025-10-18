@@ -32,6 +32,7 @@ interface RectangleProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -74,6 +75,7 @@ const Rectangle: React.FC<RectangleProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -214,6 +216,7 @@ const Rectangle: React.FC<RectangleProps> = ({
       scaleX={scaleX}
       scaleY={scaleY}
       draggable={!isLockedByOtherUser && !isDraggingDisabled} // Disable dragging during grace period
+      listening={listening} // Make transparent to events when panning
       onClick={handleClick}
       onDblClick={handleDblClick}
       onTap={handleTap}

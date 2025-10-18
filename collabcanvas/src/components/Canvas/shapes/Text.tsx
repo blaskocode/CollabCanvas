@@ -30,6 +30,7 @@ interface TextProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: any) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -68,6 +69,7 @@ const Text: React.FC<TextProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -312,6 +314,7 @@ const Text: React.FC<TextProps> = ({
       scaleX={1}
       scaleY={1}
       draggable={!isLockedByOtherUser && !isEditing && !isDraggingDisabled}
+      listening={listening} // Make transparent to events when panning
       onClick={handleClick}
       onDblClick={handleDblClick}
       onTap={handleClick}

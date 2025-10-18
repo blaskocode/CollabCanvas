@@ -24,6 +24,7 @@ interface StartEndOvalProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -60,6 +61,7 @@ const StartEndOval: React.FC<StartEndOvalProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -190,6 +192,7 @@ const StartEndOval: React.FC<StartEndOvalProps> = ({
       scaleX={scaleX}
       scaleY={scaleY}
       draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
       onClick={handleClick}
       onDblClick={handleDblClick}
       onTap={handleTap}

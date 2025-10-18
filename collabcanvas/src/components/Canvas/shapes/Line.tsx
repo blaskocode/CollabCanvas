@@ -17,6 +17,7 @@ interface LineProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: any) => void;
   onDblClick?: (e?: any) => void;
   onDragStart?: () => void;
@@ -46,6 +47,7 @@ const Line: React.FC<LineProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled: _isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -234,6 +236,7 @@ const Line: React.FC<LineProps> = ({
         hitStrokeWidth={Math.max(finalStrokeWidth, 12)} // Larger hit area for easier selection
         opacity={opacity / 100} // Convert 0-100 to 0-1
         draggable={!isLockedByOtherUser && isDraggingPoint === null}
+        listening={listening}
         onClick={handleClick}
       onDblClick={handleDblClick}
         onTap={handleTap}

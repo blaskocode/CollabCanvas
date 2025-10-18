@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useCanvasContext } from '../../contexts/CanvasContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -98,24 +99,71 @@ export function AIInput() {
         toast.error(result.error);
         setLastResult(`Error: ${result.error}`);
       } else {
-        // Create better success message for shapes and connections
-        const parts = [];
-        if (result.shapesCreated.length > 0) {
-          parts.push(`${result.shapesCreated.length} shape${result.shapesCreated.length > 1 ? 's' : ''}`);
+        // Generate detailed summary of created shapes
+        let detailedSummary = '';
+        
+        if (result.shapeDetails.length > 0) {
+          // Group shapes by type and color for cleaner summary
+          const shapeGroups = new Map<string, number>();
+          result.shapeDetails.forEach(shape => {
+            const key = `${shape.type}|${shape.fill}`;
+            shapeGroups.set(key, (shapeGroups.get(key) || 0) + 1);
+          });
+          
+          // Format shape type names for display
+          const formatShapeType = (type: string): string => {
+            const typeMap: Record<string, string> = {
+              'rectangle': 'Rectangle',
+              'circle': 'Circle',
+              'text': 'Text',
+              'line': 'Line',
+              'process': 'Process Box',
+              'decision': 'Decision Diamond',
+              'startEnd': 'Start/End Oval',
+              'document': 'Document',
+              'database': 'Database',
+              'triangle': 'Triangle',
+              'rightTriangle': 'Right Triangle',
+              'hexagon': 'Hexagon',
+              'octagon': 'Octagon',
+              'ellipse': 'Ellipse',
+              'button': 'Button',
+              'textInput': 'Text Input',
+              'textarea': 'Textarea',
+              'dropdown': 'Dropdown',
+              'checkbox': 'Checkbox',
+              'radio': 'Radio',
+              'toggle': 'Toggle',
+              'slider': 'Slider'
+            };
+            return typeMap[type] || type;
+          };
+          
+          // Build summary lines
+          const summaryLines: string[] = [];
+          shapeGroups.forEach((count, key) => {
+            const [type, fill] = key.split('|');
+            const shapeName = formatShapeType(type);
+            const plural = count > 1 ? 's' : '';
+            summaryLines.push(`- ${count} ${shapeName}${plural} (${fill.toUpperCase()})`);
+          });
+          
+          detailedSummary = summaryLines.join('\n');
         }
+        
+        // Add connections info if any
         if (result.connectionsCreated.length > 0) {
-          parts.push(`${result.connectionsCreated.length} connection${result.connectionsCreated.length > 1 ? 's' : ''}`);
-        }
-        if (result.shapesModified.length > 0) {
-          parts.push(`modified ${result.shapesModified.length} shape${result.shapesModified.length > 1 ? 's' : ''}`);
+          detailedSummary += `\n- ${result.connectionsCreated.length} Connection${result.connectionsCreated.length > 1 ? 's' : ''}`;
         }
         
-        const summary = parts.length > 0 
-          ? `Created ${parts.join(', ')}`
-          : 'Operation completed';
+        // Display detailed summary as toast
+        if (detailedSummary) {
+          toast.success(detailedSummary, { duration: 5000 }); // Longer duration for detailed info
+        } else {
+          toast.success('Operation completed');
+        }
         
-        toast.success(summary);
-        setLastResult(result.interpretation || summary);
+        setLastResult(result.interpretation || detailedSummary || 'Operation completed');
         setCommand(''); // Clear input on success
       }
       
@@ -165,9 +213,25 @@ export function AIInput() {
             <svg className="w-5 h-5 text-purple-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
-            <div className="flex-1">
+            <div className="flex-1 prose prose-sm prose-purple max-w-none">
               <span className="font-medium text-purple-700">AI: </span>
-              {lastResult}
+              <ReactMarkdown
+                components={{
+                  // Custom styles for markdown elements
+                  p: ({children, ...props}) => <p className="inline" {...props}>{children}</p>,
+                  ul: ({children, ...props}) => <ul className="list-disc list-inside my-1" {...props}>{children}</ul>,
+                  ol: ({children, ...props}) => <ol className="list-decimal list-inside my-1" {...props}>{children}</ol>,
+                  li: ({children, ...props}) => <li className="my-0.5" {...props}>{children}</li>,
+                  strong: ({children, ...props}) => <strong className="font-semibold text-purple-800" {...props}>{children}</strong>,
+                  em: ({children, ...props}) => <em className="italic" {...props}>{children}</em>,
+                  code: ({children, ...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono" {...props}>{children}</code>,
+                  h1: ({children, ...props}) => <h1 className="text-base font-bold my-1" {...props}>{children}</h1>,
+                  h2: ({children, ...props}) => <h2 className="text-sm font-bold my-1" {...props}>{children}</h2>,
+                  h3: ({children, ...props}) => <h3 className="text-sm font-semibold my-1" {...props}>{children}</h3>,
+                }}
+              >
+                {lastResult}
+              </ReactMarkdown>
             </div>
             <button
               onClick={() => setLastResult('')}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useCanvas } from '../hooks/useCanvas';
 import { useHistory } from '../hooks/useHistory';
@@ -38,7 +38,7 @@ import {
 } from '../services/comments';
 import type { CanvasContextType, ShapeUpdateData, ShapeType, ShapeCreateData, Shape, ConnectionCreateData, ConnectionUpdateData, Connection, Component, ComponentUpdateData, Comment, CommentUpdateData } from '../utils/types';
 import type Konva from 'konva';
-import { GLOBAL_CANVAS_ID } from '../utils/constants';
+import { GLOBAL_CANVAS_ID, CANVAS_WIDTH, CANVAS_HEIGHT } from '../utils/constants';
 import { doc, collection, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
@@ -226,6 +226,103 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     await updateShapeHook(id, updates);
   };
+
+  /**
+   * Move shapes by arrow keys (1px precision)
+   * Updates shape positions immediately without adding to history
+   * History is batched and added separately by saveArrowKeyMovementToHistory
+   * 
+   * @param shapeIds - Array of shape IDs to move
+   * @param dx - Horizontal movement delta (in pixels)
+   * @param dy - Vertical movement delta (in pixels)
+   */
+  const moveShapesByArrowKey = useCallback((shapeIds: string[], dx: number, dy: number) => {
+    // First, check if the movement would cause any shape to go out of bounds
+    let canMove = true;
+    const newPositions = new Map<string, { x: number; y: number }>();
+    
+    shapeIds.forEach(shapeId => {
+      const shape = shapes.find(s => s.id === shapeId);
+      if (!shape) return;
+      
+      let newX = shape.x + dx;
+      let newY = shape.y + dy;
+      
+      // Calculate bounds based on shape type
+      if (shape.type === 'circle' && shape.radius) {
+        // For circles, x,y is the center, so check radius
+        const minX = shape.radius;
+        const maxX = CANVAS_WIDTH - shape.radius;
+        const minY = shape.radius;
+        const maxY = CANVAS_HEIGHT - shape.radius;
+        
+        if (newX < minX || newX > maxX || newY < minY || newY > maxY) {
+          canMove = false;
+          return;
+        }
+      } else {
+        // For rectangles and other shapes, x,y is top-left
+        const width = shape.width || 100;
+        const height = shape.height || 100;
+        
+        if (newX < 0 || newX + width > CANVAS_WIDTH || newY < 0 || newY + height > CANVAS_HEIGHT) {
+          canMove = false;
+          return;
+        }
+      }
+      
+      newPositions.set(shapeId, { x: newX, y: newY });
+    });
+    
+    // Only move if ALL shapes can move without going out of bounds
+    if (canMove) {
+      newPositions.forEach((pos, shapeId) => {
+        updateShapeHook(shapeId, { x: pos.x, y: pos.y });
+      });
+    }
+  }, [shapes, updateShapeHook]);
+
+  /**
+   * Save batched arrow key movements to history
+   * Called after the debounce timer completes
+   * 
+   * @param shapeIds - Array of shape IDs that were moved
+   * @param totalDx - Total horizontal movement
+   * @param totalDy - Total vertical movement
+   * @param originalPositions - Map of original positions before movement started
+   */
+  const saveArrowKeyMovementToHistory = useCallback((
+    shapeIds: string[], 
+    totalDx: number, 
+    totalDy: number,
+    originalPositions: Map<string, { x: number; y: number }>
+  ) => {
+    if (!currentUser || (totalDx === 0 && totalDy === 0)) return;
+    
+    // Build before and after states
+    const before: Record<string, Partial<Shape>> = {};
+    const after: Record<string, Partial<Shape>> = {};
+    
+    shapeIds.forEach(id => {
+      const orig = originalPositions.get(id);
+      const shape = shapes.find(s => s.id === id);
+      
+      if (orig && shape) {
+        before[id] = { x: orig.x, y: orig.y };
+        after[id] = { x: shape.x, y: shape.y };
+      }
+    });
+    
+    // Record as a single history action
+    history.recordAction({
+      type: 'update',
+      shapesAffected: shapeIds,
+      before,
+      after,
+      timestamp: Date.now(),
+      userId: currentUser.uid,
+    });
+  }, [currentUser, shapes, history]);
 
   /**
    * Delete a shape from the canvas
@@ -1690,6 +1787,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     distributeShapes,
     groupShapes,
     ungroupShapes,
+    moveShapesByArrowKey,
+    saveArrowKeyMovementToHistory,
     deleteGroup,
     updateGroupStyle,
     updateGroupBounds,

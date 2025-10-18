@@ -11,6 +11,7 @@ interface ButtonProps {
   width: number;
   height: number;
   fill: string;
+  text?: string; // Add optional text prop
   stroke?: string;
   strokeWidth?: number;
   opacity?: number;
@@ -25,6 +26,7 @@ interface ButtonProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -57,6 +59,7 @@ const Button: React.FC<ButtonProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -64,6 +67,7 @@ const Button: React.FC<ButtonProps> = ({
   onDragEnd,
   onContextMenu,
   onRef,
+  text = 'Submit', // Default text
 }) => {
   const shapeRef = React.useRef<Konva.Rect>(null);
   
@@ -146,7 +150,7 @@ const Button: React.FC<ButtonProps> = ({
     finalStrokeWidth = 3;
   }
 
-  const buttonLabel = formOptions?.label || 'Button';
+  const buttonLabel = text;
 
   return (
     <>
@@ -167,6 +171,7 @@ const Button: React.FC<ButtonProps> = ({
         scaleX={scaleX}
         scaleY={scaleY}
         draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
         onClick={handleClick}
       onDblClick={handleDblClick}
         onTap={handleTap}
@@ -185,7 +190,7 @@ const Button: React.FC<ButtonProps> = ({
         x={x}
         y={y + (height - 16) / 2}
         width={width}
-        text={buttonLabel}
+        text={buttonLabel} // Updated to use text prop
         fontSize={16}
         fontFamily="Arial"
         fontStyle="bold"

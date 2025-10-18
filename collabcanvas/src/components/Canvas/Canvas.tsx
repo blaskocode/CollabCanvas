@@ -57,7 +57,7 @@ import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../util
  */
 const Canvas: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, addConnection, updateConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType, getShapeCommentCount, getShapeUnresolvedCommentCount } = useCanvasContext();
+  const { shapes, groups, connections, selectedId, selectedIds, selectedConnectionId, isSelected, loading, stageRef, selectShape, selectMultipleShapes, addShape, updateShape, deleteShape, deleteMultipleShapes, lockShape, unlockShape, duplicateShape, bringForward, sendBack, alignShapes, distributeShapes, groupShapes, ungroupShapes, moveShapesByArrowKey, saveArrowKeyMovementToHistory, addConnection, updateConnection, deleteConnection, selectConnection, undo, redo, canUndo, canRedo, clearAll, copyShapes, cutShapes, pasteShapes, hasClipboardData, exportCanvas, gridEnabled, toggleGrid, selectShapesInLasso, selectShapesByType, getShapeCommentCount, getShapeUnresolvedCommentCount } = useCanvasContext();
   const { currentUser } = useAuth();
   const toast = useToast();
   
@@ -98,6 +98,11 @@ const Canvas: React.FC = () => {
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const panStartRef = useRef<{ x: number; y: number; stageX: number; stageY: number } | null>(null);
   const isDraggingShapeRef = useRef(false); // Track shape drag to prevent pan conflicts
+  
+  // Arrow key movement state (for batched history)
+  const arrowKeyCumulativeDeltaRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const arrowKeyShapeIdsRef = useRef<string[]>([]);
+  const arrowKeyOriginalPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   
   // Multiplayer cursors
   const { cursors, updateCursor } = useCursors(
@@ -227,6 +232,53 @@ const Canvas: React.FC = () => {
     };
   }, []);
 
+  /**
+   * Handle arrow key movement with batched history
+   * Moves shapes 1px at a time and batches multiple movements into a single undo entry
+   * History is only saved when the arrow key is released (via handleArrowKeyRelease)
+   */
+  const handleArrowKeyMove = useCallback((shapeIds: string[], dx: number, dy: number) => {
+    // Store original positions on first move (when refs are empty)
+    if (arrowKeyShapeIdsRef.current.length === 0) {
+      arrowKeyOriginalPositionsRef.current.clear();
+      shapeIds.forEach(id => {
+        const shape = shapes.find(s => s.id === id);
+        if (shape) {
+          arrowKeyOriginalPositionsRef.current.set(id, { x: shape.x, y: shape.y });
+        }
+      });
+      arrowKeyShapeIdsRef.current = shapeIds;
+    }
+    
+    // Accumulate deltas
+    arrowKeyCumulativeDeltaRef.current.dx += dx;
+    arrowKeyCumulativeDeltaRef.current.dy += dy;
+    
+    // Move shapes immediately (optimistic)
+    moveShapesByArrowKey(shapeIds, dx, dy);
+  }, [shapes, moveShapesByArrowKey]);
+
+  /**
+   * Handle arrow key release - save to history immediately
+   * This ensures all movements since the key was first pressed are batched into a single undo entry
+   */
+  const handleArrowKeyRelease = useCallback(() => {
+    // Only save if there was actual movement
+    const totalDx = arrowKeyCumulativeDeltaRef.current.dx;
+    const totalDy = arrowKeyCumulativeDeltaRef.current.dy;
+    const movedShapeIds = arrowKeyShapeIdsRef.current;
+    const originalPositions = new Map(arrowKeyOriginalPositionsRef.current);
+    
+    if (movedShapeIds.length > 0 && (totalDx !== 0 || totalDy !== 0)) {
+      saveArrowKeyMovementToHistory(movedShapeIds, totalDx, totalDy, originalPositions);
+    }
+    
+    // Reset state for next movement
+    arrowKeyCumulativeDeltaRef.current = { dx: 0, dy: 0 };
+    arrowKeyShapeIdsRef.current = [];
+    arrowKeyOriginalPositionsRef.current.clear();
+  }, [saveArrowKeyMovementToHistory]);
+
   // Keyboard listener for Space key (panning)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -264,6 +316,26 @@ const Canvas: React.FC = () => {
       // Don't process keyboard shortcuts if user is typing in an input or textarea
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Arrow key movement (1px precision)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        
+        // Determine which shapes to move
+        const shapeIdsToMove: string[] = [];
+        if (selectedId) shapeIdsToMove.push(selectedId);
+        if (selectedIds.length > 0) shapeIdsToMove.push(...selectedIds);
+        
+        // No shapes selected, do nothing
+        if (shapeIdsToMove.length === 0) return;
+        
+        // Calculate movement delta
+        const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+        const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+        
+        handleArrowKeyMove(shapeIdsToMove, dx, dy);
         return;
       }
 
@@ -606,9 +678,26 @@ const Canvas: React.FC = () => {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Don't process if user is typing in an input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Arrow key released - save to history
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        handleArrowKeyRelease();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser, toggleGrid, gridEnabled, copyShapes, cutShapes, pasteShapes, hasClipboardData, selectionMode, showComponentLibrary, showCommentsPanel]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [selectedId, selectedIds, shapes, selectedConnectionId, deleteShape, deleteConnection, selectShape, duplicateShape, bringForward, sendBack, groupShapes, ungroupShapes, undo, redo, canUndo, canRedo, toast, currentUser, toggleGrid, gridEnabled, copyShapes, cutShapes, pasteShapes, hasClipboardData, selectionMode, showComponentLibrary, showCommentsPanel, handleArrowKeyRelease]);
 
   /**
    * Auto-pan effect when dragging shapes near viewport edges
@@ -1327,6 +1416,9 @@ const Canvas: React.FC = () => {
    * Also handles box select start
    */
   const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
+    // Don't handle clicks while panning (Space key pressed)
+    if (isSpacePressed) return;
+    
     // Don't deselect if we just completed a box selection
     if (justCompletedBoxSelect.current) {
       justCompletedBoxSelect.current = false;
@@ -1978,9 +2070,10 @@ const Canvas: React.FC = () => {
    */
   const renderShapeByType = (shape: ShapeType, shapeIsSelected: boolean) => {
     // Disable dragging when:
-    // 1. Currently editing this shape, OR
-    // 2. Just finished editing this shape (grace period)
-    const isDraggingDisabled = editingShapeId === shape.id || justFinishedEditingId === shape.id;
+    // 1. Space key is pressed (panning mode), OR
+    // 2. Currently editing this shape, OR
+    // 3. Just finished editing this shape (grace period)
+    const isDraggingDisabled = isSpacePressed || editingShapeId === shape.id || justFinishedEditingId === shape.id;
     
     const commonProps = {
       id: shape.id,
@@ -1989,7 +2082,11 @@ const Canvas: React.FC = () => {
       lockedBy: shape.lockedBy,
       currentUserId: currentUser?.uid || null,
       isDraggingDisabled, // Pass this to shapes that support it
+      listening: !isSpacePressed, // Make shapes transparent to events when panning
       onSelect: (e?: any) => {
+        // Don't allow selection while panning (Space key pressed)
+        if (isSpacePressed) return;
+        
         // Don't allow selection during drawing/placement mode
         if (isDrawingMode || isPlacementMode) return;
         
@@ -2031,6 +2128,9 @@ const Canvas: React.FC = () => {
         }
       },
       onDragStart: () => {
+        // Don't allow dragging while panning (Space key pressed)
+        if (isSpacePressed) return;
+        
         // Prevent drag if editing just finished (300ms grace period)
         if (justFinishedEditingId === shape.id) {
           return;
@@ -2038,6 +2138,9 @@ const Canvas: React.FC = () => {
         handleShapeDragStart(shape.id);
       },
       onDragMove: (x: number, y: number) => {
+        // Don't allow dragging while panning (Space key pressed)
+        if (isSpacePressed) return;
+        
         // Prevent drag move if editing just finished
         if (justFinishedEditingId === shape.id) {
           return;
@@ -2045,6 +2148,9 @@ const Canvas: React.FC = () => {
         handleShapeDragMove(shape.id, x, y);
       },
       onDragEnd: (x: number, y: number) => {
+        // Don't allow dragging while panning (Space key pressed)
+        if (isSpacePressed) return;
+        
         // Prevent drag end if editing just finished
         if (justFinishedEditingId === shape.id) {
           return;
@@ -2526,6 +2632,7 @@ const Canvas: React.FC = () => {
             scaleX={shape.scaleX}
             scaleY={shape.scaleY}
             formOptions={shape.formOptions}
+            text={shape.text} // Add text prop for configurable button text
           />
         );
       

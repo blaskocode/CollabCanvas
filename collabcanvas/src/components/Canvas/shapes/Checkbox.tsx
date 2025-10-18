@@ -26,6 +26,7 @@ interface CheckboxProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -58,6 +59,7 @@ const Checkbox: React.FC<CheckboxProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -161,6 +163,7 @@ const Checkbox: React.FC<CheckboxProps> = ({
       scaleX={scaleX}
       scaleY={scaleY}
       draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
       onClick={handleClick}
       onDblClick={handleDblClick}
       onTap={handleTap}

@@ -712,17 +712,16 @@ export const distributeShapes = async (
   direction: 'horizontal' | 'vertical',
   shapes: Shape[]
 ): Promise<void> => {
-  if (shapeIds.length < 3) {
+  if (shapeIds.length < 2) {
     return;
   }
 
   const selectedShapes = shapes.filter(s => shapeIds.includes(s.id));
-  
   const shapeBounds = selectedShapes.map(s => ({
     shape: s,
     bounds: getShapeBounds(s)
   }));
-  
+
   const sortedShapeData = [...shapeBounds].sort((a, b) => {
     if (direction === 'horizontal') {
       return a.bounds.x - b.bounds.x;
@@ -731,37 +730,23 @@ export const distributeShapes = async (
     }
   });
 
-  const firstShapeData = sortedShapeData[0];
-  const lastShapeData = sortedShapeData[sortedShapeData.length - 1];
-  
-  const totalSpace = direction === 'horizontal'
-    ? (lastShapeData.bounds.x + lastShapeData.bounds.width) - firstShapeData.bounds.x
-    : (lastShapeData.bounds.y + lastShapeData.bounds.height) - firstShapeData.bounds.y;
-  
   const totalShapeSize = sortedShapeData.reduce((sum, { bounds }) => {
     return sum + (direction === 'horizontal' ? bounds.width : bounds.height);
   }, 0);
-  
-  const gap = (totalSpace - totalShapeSize) / (sortedShapeData.length - 1);
+
+  const centerY = selectedShapes.reduce((sum, shape) => sum + shape.y + (shape.height || 0) / 2, 0) / selectedShapes.length;  // Calculate the perfect center y-value
 
   const updates: { id: string; x?: number; y?: number }[] = [];
-  let currentPos = direction === 'horizontal' ? firstShapeData.bounds.x : firstShapeData.bounds.y;
+  let currentPos = direction === 'horizontal' ? sortedShapeData[0].bounds.x : sortedShapeData[0].bounds.y;
 
-  sortedShapeData.forEach(({ shape, bounds }, index) => {
-    if (index === 0 || index === sortedShapeData.length - 1) {
-      return;
-    }
-
+  sortedShapeData.forEach(({ shape, bounds }) => {
     if (direction === 'horizontal') {
-      currentPos += sortedShapeData[index - 1].bounds.width + gap;
-      const deltaX = currentPos - bounds.x;
-      const newX = shape.x + deltaX;
-      updates.push({ id: shape.id, x: Math.round(newX * 100) / 100 });
-    } else {
-      currentPos += sortedShapeData[index - 1].bounds.height + gap;
-      const deltaY = currentPos - bounds.y;
-      const newY = shape.y + deltaY;
-      updates.push({ id: shape.id, y: Math.round(newY * 100) / 100 });
+      const centerOffset = (bounds.y + bounds.height / 2) - centerY;
+      updates.push({ id: shape.id, y: Math.round((shape.y - centerOffset) * 100) / 100 });
+
+      if (shape.id !== sortedShapeData[sortedShapeData.length - 1].shape.id) {
+        currentPos += bounds.width + ((sortedShapeData.reduce((acc, cur) => acc + cur.bounds.width, 0) + (sortedShapeData.length - 1)) / sortedShapeData.length);
+      }
     }
   });
 
@@ -772,9 +757,9 @@ export const distributeShapes = async (
   const canvasRef = doc(db, CANVAS_COLLECTION, canvasId);
   const canvasSnap = await getDoc(canvasRef);
   const currentData = canvasSnap.data() as CanvasDocument;
-  
+
   const updateMap = new Map(updates.map(u => [u.id, u]));
-  
+
   const now = Timestamp.now();
   const updatedShapes = currentData.shapes.map(shape => {
     const update = updateMap.get(shape.id);

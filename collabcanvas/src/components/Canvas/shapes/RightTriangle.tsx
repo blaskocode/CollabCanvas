@@ -32,6 +32,7 @@ interface RightTriangleProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -74,6 +75,7 @@ const RightTriangle: React.FC<RightTriangleProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -200,6 +202,7 @@ const RightTriangle: React.FC<RightTriangleProps> = ({
         scaleX={scaleX}
         scaleY={scaleY}
         draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
         onClick={handleClick}
       onDblClick={handleDblClick}
         onTap={handleTap}

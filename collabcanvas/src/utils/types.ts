@@ -301,6 +301,8 @@ export interface CanvasContextType {
   duplicateShape: (id: string) => Promise<void>;
   bringForward: (id: string) => Promise<void>;
   sendBack: (id: string) => Promise<void>;
+  moveShapesByArrowKey: (shapeIds: string[], dx: number, dy: number) => void;
+  saveArrowKeyMovementToHistory: (shapeIds: string[], totalDx: number, totalDy: number, originalPositions: Map<string, { x: number; y: number }>) => void;
   alignShapes: (alignType: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom') => Promise<void>;
   distributeShapes: (direction: 'horizontal' | 'vertical') => Promise<void>;
   // Grouping operations

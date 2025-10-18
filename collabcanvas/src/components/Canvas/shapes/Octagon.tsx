@@ -32,6 +32,7 @@ interface OctagonProps {
   lockedBy: string | null;
   currentUserId: string | null;
   isDraggingDisabled?: boolean;
+  listening?: boolean;
   onSelect: (e?: KonvaEventObject<MouseEvent> | KonvaEventObject<TouchEvent>) => void;
   onDblClick?: (e?: KonvaEventObject<MouseEvent>) => void;
   onDragStart?: () => void;
@@ -72,6 +73,7 @@ const Octagon: React.FC<OctagonProps> = ({
   lockedBy,
   currentUserId,
   isDraggingDisabled = false,
+  listening = true,
   onSelect,
   onDblClick,
   onDragStart,
@@ -192,6 +194,7 @@ const Octagon: React.FC<OctagonProps> = ({
         scaleX={scaleX}
         scaleY={scaleY}
         draggable={!isLockedByOtherUser && !isDraggingDisabled}
+      listening={listening}
         onClick={handleClick}
       onDblClick={handleDblClick}
         onTap={handleTap}

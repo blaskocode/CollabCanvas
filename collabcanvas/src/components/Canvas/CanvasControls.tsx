@@ -144,6 +144,26 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
         </button>
       )}
       
+      {/* Help Text - Moved to Top */}
+      <div className="text-xs text-gray-600 text-center space-y-1 pb-3">
+        <div className="flex items-center justify-center space-x-2">
+          <svg className="w-5 h-3" fill="currentColor" viewBox="0 0 24 12" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="20" height="8" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+            <rect x="6" y="6" width="12" height="2" rx="0.5" fill="currentColor"/>
+          </svg>
+          <span className="font-medium">+ drag to pan</span>
+        </div>
+        <div className="flex items-center justify-center space-x-2">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+          <span className="font-medium">Scroll to zoom</span>
+        </div>
+      </div>
+      
+      {/* Divider */}
+      <div className="border-t border-gray-200 mb-3" role="separator"></div>
+      
       {/* Zoom Level Display */}
       <div 
         className="text-center bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl py-3 px-4 shadow-md cursor-pointer hover:from-indigo-600 hover:to-purple-700 transition-all duration-200 select-none"
@@ -158,16 +178,16 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
         <div className="text-2xl font-bold">{Math.round(zoom * 100)}%</div>
       </div>
 
-      {/* Zoom Controls */}
-      <div className="space-y-2">
+      {/* Zoom Controls - Horizontal Layout */}
+      <div className="flex gap-2">
         <button
           onClick={onZoomIn}
           disabled={!canZoomIn}
-          className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:from-blue-600 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-2"
+          className="flex-1 px-2 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:from-blue-600 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex flex-col items-center justify-center space-y-1"
           title="Zoom In"
           aria-label="Zoom in"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
           </svg>
           <span>Zoom In</span>
@@ -176,11 +196,11 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
         <button
           onClick={onZoomOut}
           disabled={!canZoomOut}
-          className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl hover:from-purple-600 hover:to-pink-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-2"
+          className="flex-1 px-2 py-2 text-xs font-semibold text-white bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl hover:from-purple-600 hover:to-pink-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex flex-col items-center justify-center space-y-1"
           title="Zoom Out"
           aria-label="Zoom out"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
           </svg>
           <span>Zoom Out</span>
@@ -188,14 +208,14 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
 
         <button
           onClick={onResetView}
-          className="w-full px-4 py-3 text-sm font-semibold text-gray-700 bg-gradient-to-r from-gray-100 to-gray-200 rounded-xl hover:from-gray-200 hover:to-gray-300 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center space-x-2"
+          className="flex-1 px-2 py-2 text-xs font-semibold text-gray-700 bg-gradient-to-r from-gray-100 to-gray-200 rounded-xl hover:from-gray-200 hover:to-gray-300 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 flex flex-col items-center justify-center space-y-1"
           title="Reset View"
           aria-label="Reset view to center"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          <span>Reset View</span>
+          <span>Reset</span>
         </button>
       </div>
 
@@ -739,25 +759,6 @@ const CanvasControls: React.FC<CanvasControlsProps> = ({
           <span>Comments</span>
         </button>
       )}
-
-      {/* Help Text */}
-      <div 
-        className="text-xs text-gray-600 text-center pt-3 border-t border-gradient-to-r from-transparent via-gray-200 to-transparent space-y-1"
-        role="separator"
-      >
-        <div className="flex items-center justify-center space-x-2">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
-          </svg>
-          <span className="font-medium">Drag to pan</span>
-        </div>
-        <div className="flex items-center justify-center space-x-2">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-          <span className="font-medium">Scroll to zoom</span>
-        </div>
-      </div>
     </div>
   );
 };

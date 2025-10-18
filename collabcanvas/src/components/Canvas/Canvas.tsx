@@ -204,6 +204,57 @@ const Canvas: React.FC = () => {
     setStagePos,
     isDraggingShapeRef,
   });
+
+  // Wrap mouse up handler to add box selection completion logic
+  const wrappedHandleStageMouseUp = useCallback(async () => {
+    // First, call the hook's mouse up handler (handles drawing, panning, etc.)
+    await handleStageMouseUp();
+    
+    // Then, handle box selection completion
+    if (boxSelect) {
+      const x1 = Math.min(boxSelect.x1, boxSelect.x2);
+      const y1 = Math.min(boxSelect.y1, boxSelect.y2);
+      const x2 = Math.max(boxSelect.x1, boxSelect.x2);
+      const y2 = Math.max(boxSelect.y1, boxSelect.y2);
+      
+      // Find shapes within the selection box
+      const selectedShapeIds = shapes.filter(shape => {
+        // Get shape bounds
+        const shapeX = shape.x;
+        const shapeY = shape.y;
+        const shapeWidth = shape.width || 0;
+        const shapeHeight = shape.height || 0;
+        
+        // For circles, use radius-based bounds
+        if (shape.type === 'circle' && shape.radius) {
+          const centerX = shapeX;
+          const centerY = shapeY;
+          const radius = shape.radius;
+          
+          return (
+            centerX - radius >= x1 &&
+            centerX + radius <= x2 &&
+            centerY - radius >= y1 &&
+            centerY + radius <= y2
+          );
+        }
+        
+        // For other shapes, check if shape is fully within selection box
+        return (
+          shapeX >= x1 &&
+          shapeX + shapeWidth <= x2 &&
+          shapeY >= y1 &&
+          shapeY + shapeHeight <= y2
+        );
+      }).map(shape => shape.id);
+      
+      // Select the shapes
+      if (selectedShapeIds.length > 0) {
+        selectMultipleShapes(selectedShapeIds);
+        justCompletedBoxSelect.current = true;
+      }
+    }
+  }, [handleStageMouseUp, boxSelect, shapes, selectMultipleShapes]);
   
   // Hover state for showing anchors
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
@@ -2568,7 +2619,7 @@ const Canvas: React.FC = () => {
             }
           }
         }}
-        onMouseUp={handleStageMouseUp}
+        onMouseUp={wrappedHandleStageMouseUp}
         onDragEnd={handleStageDragEnd}
         onWheel={handleWheel}
         onContextMenu={(e) => {

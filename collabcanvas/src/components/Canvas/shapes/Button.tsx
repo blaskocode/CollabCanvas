@@ -53,7 +53,6 @@ const Button: React.FC<ButtonProps> = ({
   rotation = 0,
   scaleX = 1,
   scaleY = 1,
-  formOptions,
   isSelected,
   isLocked,
   lockedBy,

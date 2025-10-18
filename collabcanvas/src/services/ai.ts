@@ -388,8 +388,18 @@ export interface AIAgentResult {
   error?: string;
 }
 
-async function executeFunctionCall(name, args, operations) {
-  const result = { success: false };
+/**
+ * Result of function call execution
+ */
+interface ExecutionResult {
+  success: boolean;
+  shapeId?: string;
+  connectionId?: string;
+  error?: string;
+}
+
+async function executeFunctionCall(name: string, args: any, operations: CanvasOperations): Promise<ExecutionResult> {
+  const result: ExecutionResult = { success: false };
   const defaultColor = '#D3D3D3'; // Default color for shapes
 
   try {
@@ -446,7 +456,7 @@ async function executeFunctionCall(name, args, operations) {
       }
       case 'distributeShapes': {
         if (args.direction === 'horizontal') {
-          await operations.distributeShapes(args.shapeIds, direction);
+          await operations.distributeShapes(args.shapeIds, args.direction);
           result.success = true;
         }
         break;
@@ -462,8 +472,8 @@ async function executeFunctionCall(name, args, operations) {
           let currentY = 0;
           const updates: { id: string; x: number; y: number }[] = [];
 
-          shapeIds.forEach((shapeId) => {
-            const shape = args.shapes.find(s => s.id === shapeId);
+          shapeIds.forEach((shapeId: string) => {
+            const shape = args.shapes.find((s: any) => s.id === shapeId);
             if (!shape) return;
 
             const shapeWidth = shape.width || 100;  // Fallback to default sizes

@@ -730,9 +730,10 @@ export const distributeShapes = async (
     }
   });
 
-  const totalShapeSize = sortedShapeData.reduce((sum, { bounds }) => {
-    return sum + (direction === 'horizontal' ? bounds.width : bounds.height);
-  }, 0);
+  // Calculate total size for distribution calculations if needed in the future
+  // const totalShapeSize = sortedShapeData.reduce((sum, { bounds }) => {
+  //   return sum + (direction === 'horizontal' ? bounds.width : bounds.height);
+  // }, 0);
 
   const centerY = selectedShapes.reduce((sum, shape) => sum + shape.y + (shape.height || 0) / 2, 0) / selectedShapes.length;  // Calculate the perfect center y-value
 

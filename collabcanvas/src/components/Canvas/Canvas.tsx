@@ -51,6 +51,7 @@ import { supportsAnchors } from '../../utils/anchor-snapping';
 import { snapToGrid, findAlignmentGuides, type AlignmentGuide } from '../../utils/snapping';
 import { useWheelZoom } from './events/useWheelZoom';
 import { useContextMenu as useContextMenuHook } from './events/useContextMenu';
+import { useMouseEvents } from './events/useMouseEvents';
 
 /**
  * Canvas Component
@@ -73,9 +74,6 @@ const Canvas: React.FC = () => {
   // Track last selected group for two-click selection
   const lastSelectedGroupRef = useRef<{ groupId: string; timestamp: number } | null>(null);
   
-  // Selection mode: 'box' or 'lasso'
-  const [selectionMode, setSelectionMode] = useState<'box' | 'lasso'>('box');
-  
   // Component library state
   const [showComponentLibrary, setShowComponentLibrary] = useState(false);
   
@@ -85,19 +83,9 @@ const Canvas: React.FC = () => {
   // Track which panel is on top (for z-index management)
   const [topPanel, setTopPanel] = useState<'components' | 'comments' | null>(null);
   
-  // Box select state
-  const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+  // Refs for selection and panning
   const justCompletedBoxSelect = useRef(false);
-  
-  // Lasso select state
-  const [isLassoDrawing, setIsLassoDrawing] = useState(false);
-  const [lassoPath, setLassoPath] = useState<Array<{ x: number; y: number }>>([]);
   const justCompletedLassoSelect = useRef(false);
-  
-  // Panning state
-  const [isPanning, setIsPanning] = useState(false);
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const panStartRef = useRef<{ x: number; y: number; stageX: number; stageY: number } | null>(null);
   const isDraggingShapeRef = useRef(false); // Track shape drag to prevent pan conflicts
   
@@ -159,16 +147,47 @@ const Canvas: React.FC = () => {
     handleShapeContextMenuBase(e, shapeId);
   }, [selectedIds, selectShape, handleShapeContextMenuBase]);
 
-  // Drawing mode state
-  const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [drawingShapeType, setDrawingShapeType] = useState<ShapeType['type'] | null>(null);
-  const [drawingPreview, setDrawingPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const drawingStartRef = useRef<{ x: number; y: number } | null>(null);
-  
-  // Placement mode state (click-to-place for workflow shapes)
-  const [isPlacementMode, setIsPlacementMode] = useState(false);
-  const [placementShapeType, setPlacementShapeType] = useState<ShapeType['type'] | null>(null);
-  const [placementPreview, setPlacementPreview] = useState<{ x: number; y: number } | null>(null);
+  // Mouse events hook for selection, drawing, and panning
+  const {
+    // Selection state
+    isBoxSelecting,
+    boxSelect,
+    isLassoDrawing,
+    lassoPath,
+    selectionMode,
+    setSelectionMode,
+    
+    // Drawing mode state
+    isDrawingMode,
+    drawingShapeType,
+    drawingPreview,
+    enterDrawingMode,
+    exitDrawingMode,
+    
+    // Placement mode state
+    isPlacementMode,
+    placementShapeType,
+    placementPreview,
+    enterPlacementMode,
+    exitPlacementMode,
+    
+    // Panning state
+    isPanning,
+    isSpacePressed,
+    setIsSpacePressed,
+    
+    // Stage mouse handlers
+    handleStageMouseDown,
+    handleStageMouseMove,
+    handleStageMouseUp,
+  } = useMouseEvents({
+    shapes,
+    defaultWorkflowShapeSizes,
+    addShape,
+    selectShapesInLasso,
+    setStagePos,
+    isDraggingShapeRef,
+  });
   
   // Hover state for showing anchors
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
@@ -1461,269 +1480,6 @@ const Canvas: React.FC = () => {
       lastSelectedGroupRef.current = null; // Reset two-click selection
     }
   };
-  
-  /**
-   * Handle stage/shape mouse down - start box select or drawing
-   */
-  const handleStageMouseDown = async (e: KonvaEventObject<MouseEvent>) => {
-    const stage = e.target.getStage();
-    if (!stage) return;
-    
-    const pos = stage.getPointerPosition();
-    if (!pos) return;
-    
-    const canvasX = (pos.x - stage.x()) / stage.scaleX();
-    const canvasY = (pos.y - stage.y()) / stage.scaleY();
-    
-    // Handle placement mode FIRST (click-to-place workflow shapes)
-    // This allows placing shapes even when clicking on top of other shapes
-    if (isPlacementMode && placementShapeType && placementPreview && e.evt.button === 0) {
-      const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
-      
-      // Calculate highest z-index to place new shape on top
-      const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
-      const newZIndex = maxZIndex + 1;
-      
-      // Place shape at the preview position
-      await addShape(placementShapeType as ShapeType['type'], 
-        { x: placementPreview.x, y: placementPreview.y }, 
-        { 
-          width: shapeSize.width, 
-          height: shapeSize.height,
-          text: placementShapeType.charAt(0).toUpperCase() + placementShapeType.slice(1), // Default text
-          zIndex: newZIndex // Place on top of all existing shapes
-        }
-      );
-      
-      // Exit placement mode after placing one shape
-      exitPlacementMode();
-      return;
-    }
-    
-    // Handle drawing mode SECOND (drag to create shapes)
-    // This allows drawing even when clicking on top of other shapes
-    // No need to check if clicked on empty - just start drawing!
-    if (isDrawingMode && drawingShapeType && e.evt.button === 0) {
-      drawingStartRef.current = { x: canvasX, y: canvasY };
-      setDrawingPreview({ x: canvasX, y: canvasY, width: 0, height: 0 });
-      return;
-    }
-    
-    // Only proceed with selection/panning if clicked on empty space
-    const clickedOnEmpty = e.target === stage;
-    if (!clickedOnEmpty) return;
-    
-    // Start panning if Space is pressed (but not if dragging a shape)
-    if (isSpacePressed && !isDraggingShapeRef.current) {
-      setIsPanning(true);
-      panStartRef.current = {
-        x: pos.x,
-        y: pos.y,
-        stageX: stage.x(),
-        stageY: stage.y(),
-      };
-      return;
-    }
-    
-    // Start selection based on active mode
-    if (e.evt.button === 0) {
-      if (selectionMode === 'lasso') {
-        if (!isLassoDrawing) {
-          // First click: start lasso
-          setIsLassoDrawing(true);
-          setLassoPath([{ x: canvasX, y: canvasY }]);
-        } else {
-          // Second click: complete lasso selection
-          if (lassoPath.length > 2) {
-            selectShapesInLasso(lassoPath);
-            justCompletedLassoSelect.current = true;
-          }
-          // Clear lasso state but stay in lasso mode
-          setIsLassoDrawing(false);
-          setLassoPath([]);
-        }
-      } else {
-        setIsBoxSelecting(true);
-        setBoxSelect({ x1: canvasX, y1: canvasY, x2: canvasX, y2: canvasY });
-      }
-    }
-  };
-  
-  /**
-   * Handle stage mouse move - update box select or drawing preview
-   */
-  const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
-    const stage = e.target.getStage();
-    if (!stage) return;
-    
-    const pos = stage.getPointerPosition();
-    if (!pos) return;
-    
-    const canvasX = (pos.x - stage.x()) / stage.scaleX();
-    const canvasY = (pos.y - stage.y()) / stage.scaleY();
-    
-    // Handle placement preview (ghost shape follows cursor)
-    if (isPlacementMode && placementShapeType) {
-      const shapeSize = defaultWorkflowShapeSizes[placementShapeType] || { width: 120, height: 80 };
-      // Center the preview on cursor
-      setPlacementPreview({ 
-        x: canvasX - shapeSize.width / 2, 
-        y: canvasY - shapeSize.height / 2 
-      });
-      return;
-    }
-    
-    // Handle drawing preview
-    if (isDrawingMode && drawingStartRef.current) {
-      const start = drawingStartRef.current;
-      const width = canvasX - start.x;
-      const height = canvasY - start.y;
-      setDrawingPreview({ x: start.x, y: start.y, width, height });
-      return;
-    }
-    
-    // Handle lasso drawing - add point to path as mouse moves
-    if (isLassoDrawing && selectionMode === 'lasso') {
-      setLassoPath(prev => {
-        if (prev.length === 0) return prev;
-        
-        // Only add point if it's at least 5px away from last point (reduce path complexity)
-        const lastPoint = prev[prev.length - 1];
-        const dx = canvasX - lastPoint.x;
-        const dy = canvasY - lastPoint.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance >= 5) {
-          return [...prev, { x: canvasX, y: canvasY }];
-        }
-        return prev;
-      });
-      return;
-    }
-    
-    // Handle panning (but not if dragging a shape)
-    if (isPanning && panStartRef.current && !isDraggingShapeRef.current) {
-      const dx = pos.x - panStartRef.current.x;
-      const dy = pos.y - panStartRef.current.y;
-      
-      const newX = panStartRef.current.stageX + dx;
-      const newY = panStartRef.current.stageY + dy;
-      
-      stage.position({ x: newX, y: newY });
-      setStagePos({ x: newX, y: newY });
-      return;
-    }
-    
-    // Handle box selection
-    if (isBoxSelecting && boxSelect) {
-      setBoxSelect({ ...boxSelect, x2: canvasX, y2: canvasY });
-    }
-  };
-  
-  /**
-   * Handle stage mouse up - complete box select or drawing (lasso uses click-to-end)
-   */
-  const handleStageMouseUp = async () => {
-    // Handle drawing completion
-    if (isDrawingMode && drawingStartRef.current && drawingPreview && drawingShapeType) {
-      const { x, y, width, height } = drawingPreview;
-      
-      // Only create shape if it has meaningful size (at least 5px in each dimension)
-      if (Math.abs(width) > 5 && Math.abs(height) > 5) {
-        // Normalize coordinates (handle negative width/height from dragging in different directions)
-        const normalizedX = width < 0 ? x + width : x;
-        const normalizedY = height < 0 ? y + height : y;
-        const normalizedWidth = Math.abs(width);
-        const normalizedHeight = Math.abs(height);
-        
-        // Calculate highest z-index to place new shape on top
-        const maxZIndex = Math.max(...shapes.map(s => s.zIndex || 0), 0);
-        const newZIndex = maxZIndex + 1;
-        
-        // Type assertion since TypeScript doesn't narrow type correctly
-        const shapeType = drawingShapeType as ShapeType['type'];
-        
-        // Create shape based on type
-        if (shapeType === 'circle') {
-          // For circles, use the smaller dimension as the radius to maintain aspect ratio
-          // Circles are positioned by their CENTER point in Konva
-          const radius = Math.min(normalizedWidth, normalizedHeight) / 2;
-          const centerX = normalizedX + radius;
-          const centerY = normalizedY + radius;
-          await addShape(shapeType, { x: centerX, y: centerY }, { 
-            radius, 
-            width: radius * 2, 
-            height: radius * 2,
-            zIndex: newZIndex 
-          });
-        } else if (shapeType === 'line') {
-          // For lines, calculate points relative to the starting position
-          // Points are relative to the line's x,y position
-          const startX = x;
-          const startY = y;
-          
-          await addShape(shapeType, { x: startX, y: startY }, { 
-            points: [0, 0, width, height] as [number, number, number, number],
-            width: normalizedWidth,
-            height: normalizedHeight,
-            zIndex: newZIndex
-          });
-        } else {
-          // For rectangles and text
-          await addShape(shapeType, { x: normalizedX, y: normalizedY }, { 
-            width: normalizedWidth, 
-            height: normalizedHeight,
-            zIndex: newZIndex
-          });
-        }
-      }
-      
-      exitDrawingMode();
-      return;
-    }
-    
-    // End panning
-    if (isPanning) {
-      setIsPanning(false);
-      panStartRef.current = null;
-      return;
-    }
-    
-    // Handle box selection completion
-    if (!isBoxSelecting || !boxSelect) return;
-    
-    setIsBoxSelecting(false);
-    
-    // Calculate selection box bounds
-    const box = {
-      x1: Math.min(boxSelect.x1, boxSelect.x2),
-      y1: Math.min(boxSelect.y1, boxSelect.y2),
-      x2: Math.max(boxSelect.x1, boxSelect.x2),
-      y2: Math.max(boxSelect.y1, boxSelect.y2),
-    };
-    
-    // Find all shapes within the selection box
-    const selectedShapeIds = shapes
-      .filter(shape => {
-        // Check if shape intersects with selection box
-        const shapeRight = shape.x + (shape.width || 0);
-        const shapeBottom = shape.y + (shape.height || 0);
-        
-        return shape.x <= box.x2 && 
-               shapeRight >= box.x1 && 
-               shape.y <= box.y2 && 
-               shapeBottom >= box.y1;
-      })
-      .map(shape => shape.id);
-    
-    // Select all shapes in the box at once
-    if (selectedShapeIds.length > 0) {
-      selectMultipleShapes(selectedShapeIds);
-      justCompletedBoxSelect.current = true;
-    }
-    
-    setBoxSelect(null);
-  };
 
   /**
    * Handle stage drag (pan functionality)
@@ -1923,24 +1679,6 @@ const Canvas: React.FC = () => {
     }
   };
 
-  /**
-   * Exit drawing mode and reset state
-   */
-  const exitDrawingMode = () => {
-    setIsDrawingMode(false);
-    setDrawingShapeType(null);
-    setDrawingPreview(null);
-    drawingStartRef.current = null;
-  };
-  
-  /**
-   * Exit placement mode (click-to-place) and reset state
-   */
-  const exitPlacementMode = () => {
-    setIsPlacementMode(false);
-    setPlacementShapeType(null);
-    setPlacementPreview(null);
-  };
 
   /**
    * Handle bring to front (move to top of z-index)

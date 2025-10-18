@@ -203,6 +203,9 @@ const Canvas: React.FC = () => {
     selectShapesInLasso,
     setStagePos,
     isDraggingShapeRef,
+    onLassoComplete: () => {
+      justCompletedLassoSelect.current = true;
+    },
   });
 
   // Wrap mouse up handler to add box selection completion logic

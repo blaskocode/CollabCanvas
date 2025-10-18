@@ -64,6 +64,7 @@ export interface UseMouseEventsProps {
   selectShapesInLasso: (path: Array<{ x: number; y: number }>) => void;
   setStagePos: (pos: { x: number; y: number }) => void;
   isDraggingShapeRef: React.RefObject<boolean>;
+  onLassoComplete?: () => void;
 }
 
 /**
@@ -77,6 +78,7 @@ export const useMouseEvents = ({
   selectShapesInLasso,
   setStagePos,
   isDraggingShapeRef,
+  onLassoComplete,
 }: UseMouseEventsProps): UseMouseEventsReturn => {
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState<'box' | 'lasso'>('box');
@@ -214,6 +216,7 @@ export const useMouseEvents = ({
           // Second click: complete lasso selection
           if (lassoPath.length > 2) {
             selectShapesInLasso(lassoPath);
+            onLassoComplete?.(); // Notify parent that lasso completed
           }
           setIsLassoDrawing(false);
           setLassoPath([]);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Stage, Layer, Transformer, Rect, Circle as KonvaCircle, Line as KonvaLine } from 'react-konva';
+import { Stage, Layer, Transformer, Rect, Circle as KonvaCircle, Line as KonvaLine, Ellipse as KonvaEllipse } from 'react-konva';
 import type Konva from 'konva';
 import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -1511,14 +1511,16 @@ const Canvas: React.FC = () => {
           setIsLassoDrawing(true);
           setLassoPath([{ x: canvasX, y: canvasY }]);
         } else {
-          // Second click: complete lasso selection
+          // Second click: complete lasso selection and exit to box select mode
           if (lassoPath.length > 2) {
             selectShapesInLasso(lassoPath);
             justCompletedLassoSelect.current = true;
           }
-          // Clear lasso state but stay in lasso mode
+          // Clear lasso state and switch back to box select mode
           setIsLassoDrawing(false);
           setLassoPath([]);
+          setSelectionMode('box');
+          toast.success('Box selection mode');
         }
       } else {
         setIsBoxSelecting(true);
@@ -1621,6 +1623,9 @@ const Canvas: React.FC = () => {
         // Type assertion since TypeScript doesn't narrow type correctly
         const shapeType = drawingShapeType as ShapeType['type'];
         
+        // Exit drawing mode immediately to clear preview (before async shape creation)
+        exitDrawingMode();
+        
         // Create shape based on type
         if (shapeType === 'circle') {
           // For circles, use the smaller dimension as the radius to maintain aspect ratio
@@ -1654,9 +1659,11 @@ const Canvas: React.FC = () => {
             zIndex: newZIndex
           });
         }
+      } else {
+        // Shape too small, just exit drawing mode
+        exitDrawingMode();
       }
       
-      exitDrawingMode();
       return;
     }
     
@@ -3165,6 +3172,121 @@ const Canvas: React.FC = () => {
                   stroke="rgb(34, 197, 94)"
                   strokeWidth={2 / stageScale}
                   dash={[10 / stageScale, 5 / stageScale]}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'ellipse') {
+              // Ellipse preview - use full width and height
+              const centerX = normalizedX + absWidth / 2;
+              const centerY = normalizedY + absHeight / 2;
+              
+              return (
+                <KonvaEllipse
+                  x={centerX}
+                  y={centerY}
+                  radiusX={absWidth / 2}
+                  radiusY={absHeight / 2}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'triangle') {
+              // Isosceles triangle preview - apex at top center
+              const topX = normalizedX + absWidth / 2;
+              const topY = normalizedY;
+              const bottomLeftX = normalizedX;
+              const bottomLeftY = normalizedY + absHeight;
+              const bottomRightX = normalizedX + absWidth;
+              const bottomRightY = normalizedY + absHeight;
+              
+              return (
+                <KonvaLine
+                  points={[topX, topY, bottomRightX, bottomRightY, bottomLeftX, bottomLeftY]}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  closed={true}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'rightTriangle') {
+              // Right triangle preview - right angle at bottom left
+              const topLeftX = normalizedX;
+              const topLeftY = normalizedY;
+              const bottomLeftX = normalizedX;
+              const bottomLeftY = normalizedY + absHeight;
+              const bottomRightX = normalizedX + absWidth;
+              const bottomRightY = normalizedY + absHeight;
+              
+              return (
+                <KonvaLine
+                  points={[topLeftX, topLeftY, bottomRightX, bottomRightY, bottomLeftX, bottomLeftY]}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  closed={true}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'hexagon') {
+              // Hexagon preview - flat sides at top and bottom
+              const w = absWidth;
+              const h = absHeight;
+              const x = normalizedX;
+              const y = normalizedY;
+              
+              const points = [
+                x + w * 0.25, y,              // Top-left
+                x + w * 0.75, y,              // Top-right
+                x + w, y + h * 0.5,           // Middle-right
+                x + w * 0.75, y + h,          // Bottom-right
+                x + w * 0.25, y + h,          // Bottom-left
+                x, y + h * 0.5,               // Middle-left
+              ];
+              
+              return (
+                <KonvaLine
+                  points={points}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  closed={true}
+                  listening={false}
+                />
+              );
+            } else if (drawingShapeType === 'octagon') {
+              // Octagon preview
+              const w = absWidth;
+              const h = absHeight;
+              const x = normalizedX;
+              const y = normalizedY;
+              const offset = 0.293; // Approximation for regular octagon
+              
+              const points = [
+                x + w * offset, y,                    // Top-left
+                x + w * (1 - offset), y,              // Top-right
+                x + w, y + h * offset,                // Upper-right
+                x + w, y + h * (1 - offset),          // Lower-right
+                x + w * (1 - offset), y + h,          // Bottom-right
+                x + w * offset, y + h,                // Bottom-left
+                x, y + h * (1 - offset),              // Lower-left
+                x, y + h * offset,                    // Upper-left
+              ];
+              
+              return (
+                <KonvaLine
+                  points={points}
+                  fill="rgba(34, 197, 94, 0.1)"
+                  stroke="rgb(34, 197, 94)"
+                  strokeWidth={2 / stageScale}
+                  dash={[10 / stageScale, 5 / stageScale]}
+                  closed={true}
                   listening={false}
                 />
               );

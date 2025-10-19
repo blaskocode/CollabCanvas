@@ -170,23 +170,25 @@ const Ellipse: React.FC<EllipseProps> = ({
         onContextMenu={handleContextMenu}
         onDragStart={handleDragStart}
         onDragEnd={(e) => {
-          // Adjust coordinates since ellipse is centered
+          e.cancelBubble = true;
+          
+          // Ellipse is positioned by its center, so we need to convert to top-left
           const node = e.target;
-          const centerX = node.x();
-          const centerY = node.y();
-          const topLeftX = centerX - width / 2;
-          const topLeftY = centerY - height / 2;
+          const newCenterX = node.x();
+          const newCenterY = node.y();
+          
+          // Convert center position to top-left corner for storage
+          const topLeftX = newCenterX - width / 2;
+          const topLeftY = newCenterY - height / 2;
+          
           onDragEnd(topLeftX, topLeftY);
         }}
         onDragMove={(e) => {
-          if (onDragMove) {
-            const node = e.target;
-            const centerX = node.x();
-            const centerY = node.y();
-            const topLeftX = centerX - width / 2;
-            const topLeftY = centerY - height / 2;
-            onDragMove(topLeftX, topLeftY);
-          }
+          e.cancelBubble = true;
+          
+          // Don't call parent onDragMove during ellipse drag to prevent glitching
+          // The ellipse center position calculation can cause feedback loops
+          // Position will be updated on dragEnd instead
         }}
         shadowColor={isSelected ? '#2563eb' : 'transparent'}
         shadowBlur={isSelected ? 10 : 0}

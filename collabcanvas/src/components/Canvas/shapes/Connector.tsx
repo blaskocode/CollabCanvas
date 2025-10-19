@@ -393,23 +393,12 @@ const Connector: React.FC<ConnectorProps> = ({
       }, 5000);
     }
     
-    // Increment version to force endpoint re-render and clear dragged position
-    // Only increment the version for the endpoint that was dragged
-    if (endpoint === 'start') {
-      setStartEndpointVersion(v => v + 1);
-    } else {
-      setEndEndpointVersion(v => v + 1);
-    }
-    
     onUpdateConnection(updates);
   };
   
   // Determine stroke color based on selection
   const strokeColor = isSelected ? '#2563eb' : (connection.stroke || '#000000');
   const strokeWidth = connection.strokeWidth || 2;
-  
-  // Calculate points for arrow
-  const points = [fromPos.x, fromPos.y, toPos.x, toPos.y];
   
   // Determine if we should show arrows
   const pointerLength = 10;
@@ -421,12 +410,15 @@ const Connector: React.FC<ConnectorProps> = ({
   let showPointerAtStart = false;
   
   // Check if using new format (explicit arrowStart/arrowEnd)
-  if (connection.arrowStart !== undefined || connection.arrowEnd !== undefined) {
-    // New format: use explicit values (default to false if not set)
+  const hasNewFormat = connection.arrowStart !== undefined || connection.arrowEnd !== undefined;
+  
+  if (hasNewFormat) {
+    // New format: use explicit boolean values
+    // If a value is undefined in the new format, treat it as false (not as "use default")
     showPointerAtStart = connection.arrowStart === true;
     showPointerAtEnd = connection.arrowEnd === true;
   } else if (connection.arrowType !== undefined) {
-    // Legacy format: use arrowType (note: 'start' doesn't exist in ArrowType, only 'both')
+    // Legacy format: use arrowType
     showPointerAtStart = connection.arrowType === 'both';
     showPointerAtEnd = connection.arrowType === 'end' || connection.arrowType === 'both';
   } else {
@@ -434,6 +426,12 @@ const Connector: React.FC<ConnectorProps> = ({
     showPointerAtStart = false;
     showPointerAtEnd = true;
   }
+  
+  // Calculate points for arrow
+  // If we only want a start arrow, reverse the points so the arrow appears at the start
+  const points = (showPointerAtStart && !showPointerAtEnd) 
+    ? [toPos.x, toPos.y, fromPos.x, fromPos.y]  // Reversed for start arrow only
+    : [fromPos.x, fromPos.y, toPos.x, toPos.y]; // Normal direction
   
   // Calculate label position (midpoint of line)
   const labelX = (fromPos.x + toPos.x) / 2;
@@ -449,9 +447,9 @@ const Connector: React.FC<ConnectorProps> = ({
   
   return (
     <Group ref={groupRef}>
-      {/* Main line/arrow - Use Arrow component if end pointer needed, otherwise use Line */}
-      {showPointerAtEnd ? (
-        /* Arrow with end pointer */
+      {/* Main line/arrow - Always use Arrow component for consistent rendering */}
+      {(showPointerAtEnd || showPointerAtStart) ? (
+        /* Arrow with pointer(s) */
         <Arrow
           points={points}
           stroke={strokeColor}
@@ -459,7 +457,10 @@ const Connector: React.FC<ConnectorProps> = ({
           fill={strokeColor}
           pointerLength={pointerLength}
           pointerWidth={pointerWidth}
-          pointerAtBeginning={showPointerAtStart}
+          // When both arrows: use pointerAtBeginning for the start arrow
+          // When start only: points are reversed, so just use default end arrow
+          // When end only: just use default end arrow
+          pointerAtBeginning={showPointerAtStart && showPointerAtEnd}
           hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
           onClick={handleClick}
           onMouseEnter={handleMouseEnter}
@@ -470,35 +471,20 @@ const Connector: React.FC<ConnectorProps> = ({
           shadowOpacity={isSelected ? 0.5 : 0}
         />
       ) : (
-        /* Line without end pointer (may have start pointer) */
-        <>
-          <Line
-            points={points}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
-            onClick={handleClick}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            onContextMenu={handleContextMenu}
-            shadowColor={isSelected ? '#2563eb' : 'transparent'}
-            shadowBlur={isSelected ? 8 : 0}
-            shadowOpacity={isSelected ? 0.5 : 0}
-          />
-          {/* Manually draw start arrow if needed */}
-          {showPointerAtStart && (
-            <Arrow
-              points={[fromPos.x, fromPos.y, fromPos.x + (dx * 0.01), fromPos.y + (dy * 0.01)]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-              fill={strokeColor}
-              pointerLength={pointerLength}
-              pointerWidth={pointerWidth}
-              pointerAtBeginning={true}
-              listening={false}
-            />
-          )}
-        </>
+        /* Plain line with no arrows */
+        <Line
+          points={points}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          hitStrokeWidth={Math.max(strokeWidth, 12)} // Larger hit area for easier selection
+          onClick={handleClick}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onContextMenu={handleContextMenu}
+          shadowColor={isSelected ? '#2563eb' : 'transparent'}
+          shadowBlur={isSelected ? 8 : 0}
+          shadowOpacity={isSelected ? 0.5 : 0}
+        />
       )}
       
       {/* Label (if exists) */}
@@ -555,8 +541,6 @@ const Connector: React.FC<ConnectorProps> = ({
             onDragStart={() => handleEndpointDragStart('start')}
             onDragMove={(e) => handleEndpointDragMove('start', e)}
             onDragEnd={(e) => handleEndpointDragEnd('start', e)}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
             shadowColor="rgba(0,0,0,0.3)"
             shadowBlur={4}
             shadowOffsetY={2}
@@ -575,8 +559,6 @@ const Connector: React.FC<ConnectorProps> = ({
             onDragStart={() => handleEndpointDragStart('end')}
             onDragMove={(e) => handleEndpointDragMove('end', e)}
             onDragEnd={(e) => handleEndpointDragEnd('end', e)}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
             shadowColor="rgba(0,0,0,0.3)"
             shadowBlur={4}
             shadowOffsetY={2}

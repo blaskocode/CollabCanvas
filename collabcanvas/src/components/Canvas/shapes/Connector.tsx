@@ -37,8 +37,6 @@ const Connector: React.FC<ConnectorProps> = ({
   const [snapIndicator, setSnapIndicator] = useState<{ x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [liveEndpoints, setLiveEndpoints] = useState<{ start?: { x: number; y: number }; end?: { x: number; y: number } }>({});
-  const [startEndpointVersion, setStartEndpointVersion] = useState(0); // Force re-render of start endpoint
-  const [endEndpointVersion, setEndEndpointVersion] = useState(0); // Force re-render of end endpoint
   
   // Find the connected shapes (may be undefined for free-floating endpoints)
   const fromShapeBase = connection.fromShapeId ? shapes.find(s => s.id === connection.fromShapeId) : undefined;
@@ -530,7 +528,7 @@ const Connector: React.FC<ConnectorProps> = ({
         <>
           {/* Start endpoint handle */}
           <KonvaCircle
-            key={`start-${connection.id}-${startEndpointVersion}`}
+            key={`start-${connection.id}`}
             x={fromPos.x}
             y={fromPos.y}
             radius={8}
@@ -548,7 +546,7 @@ const Connector: React.FC<ConnectorProps> = ({
           
           {/* End endpoint handle */}
           <KonvaCircle
-            key={`end-${connection.id}-${endEndpointVersion}`}
+            key={`end-${connection.id}`}
             x={toPos.x}
             y={toPos.y}
             radius={8}

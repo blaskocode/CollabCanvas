@@ -78,7 +78,6 @@ const Ellipse: React.FC<EllipseProps> = ({
   onSelect,
   onDblClick,
   onDragStart,
-  onDragMove,
   onDragEnd,
   onContextMenu,
   onRef,
